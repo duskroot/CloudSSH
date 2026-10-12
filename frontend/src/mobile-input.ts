@@ -1,7 +1,10 @@
-export type MobileModifier = 'ctrl' | 'alt';
+export type MobileModifier = 'ctrl' | 'alt' | 'shift';
 export type MobileTerminalKey =
   | 'escape'
   | 'tab'
+  | 'backtab'
+  | 'delete'
+  | 'insert'
   | 'arrow_up'
   | 'arrow_down'
   | 'arrow_right'
@@ -9,7 +12,59 @@ export type MobileTerminalKey =
   | 'home'
   | 'end'
   | 'page_up'
-  | 'page_down';
+  | 'page_down'
+  | 'f1'
+  | 'f2'
+  | 'f3'
+  | 'f4'
+  | 'f5'
+  | 'f6'
+  | 'f7'
+  | 'f8'
+  | 'f9'
+  | 'f10'
+  | 'f11'
+  | 'f12'
+  | 'ctrl_c'
+  | 'ctrl_d'
+  | 'ctrl_z'
+  | 'ctrl_l';
+
+const MOBILE_TERMINAL_KEYS = new Set<MobileTerminalKey>([
+  'escape',
+  'tab',
+  'backtab',
+  'delete',
+  'insert',
+  'arrow_up',
+  'arrow_down',
+  'arrow_right',
+  'arrow_left',
+  'home',
+  'end',
+  'page_up',
+  'page_down',
+  'f1',
+  'f2',
+  'f3',
+  'f4',
+  'f5',
+  'f6',
+  'f7',
+  'f8',
+  'f9',
+  'f10',
+  'f11',
+  'f12',
+  'ctrl_c',
+  'ctrl_d',
+  'ctrl_z',
+  'ctrl_l',
+]);
+
+export function isMobileTerminalKey(key: string): key is MobileTerminalKey {
+  return MOBILE_TERMINAL_KEYS.has(key as MobileTerminalKey);
+}
 
 /**
  * 计算 xterm 隐藏 textarea 在一次延迟输入前后的差异。
@@ -36,7 +91,7 @@ export function isTerminalFocusReport(data: string): boolean {
   return data === '\x1b[I' || data === '\x1b[O';
 }
 
-/** 将移动端一次性 Ctrl/Alt 状态应用到下一段终端输入。 */
+/** 将移动端一次性 Ctrl/Alt/Shift 状态应用到下一段终端输入。 */
 export function applyMobileModifier(
   data: string,
   modifier: MobileModifier | null
@@ -45,6 +100,43 @@ export function applyMobileModifier(
 
   if (modifier === 'alt') {
     return { data: `\x1b${data}`, consumed: true };
+  }
+
+  if (modifier === 'shift') {
+    if (data === '\t') return { data: '\x1b[Z', consumed: true };
+    if (data.length === 1) {
+      const code = data.charCodeAt(0);
+      if (code >= 97 && code <= 122) {
+        return { data: data.toUpperCase(), consumed: true };
+      }
+      const shiftMap: Record<string, string> = {
+        '1': '!',
+        '2': '@',
+        '3': '#',
+        '4': '$',
+        '5': '%',
+        '6': '^',
+        '7': '&',
+        '8': '*',
+        '9': '(',
+        '0': ')',
+        '-': '_',
+        '=': '+',
+        '[': '{',
+        ']': '}',
+        '\\': '|',
+        ';': ':',
+        "'": '"',
+        ',': '<',
+        '.': '>',
+        '/': '?',
+        '`': '~',
+      };
+      if (shiftMap[data]) {
+        return { data: shiftMap[data], consumed: true };
+      }
+    }
+    return { data, consumed: true };
   }
 
   if (data.length !== 1) return { data, consumed: true };
@@ -64,24 +156,58 @@ export function mobileTerminalKeySequence(
   applicationCursorMode: boolean,
   modifier: MobileModifier | null
 ): string {
-  if (key === 'escape') return modifier === 'alt' ? '\x1b\x1b' : '\x1b';
-  if (key === 'tab') return '\t';
+  const modifierCode =
+    modifier === 'ctrl' ? 5 : modifier === 'alt' ? 3 : modifier === 'shift' ? 2 : null;
 
-  if (key === 'page_up' || key === 'page_down') {
-    const number = key === 'page_up' ? '5' : '6';
-    return modifier === 'ctrl' ? `\x1b[${number};5~` : `\x1b[${number}~`;
+  if (key === 'escape') return modifier === 'alt' ? '\x1b\x1b' : '\x1b';
+  if (key === 'tab') return modifier === 'shift' ? '\x1b[Z' : '\t';
+  if (key === 'backtab') return '\x1b[Z';
+  if (key === 'ctrl_c') return '\x03';
+  if (key === 'ctrl_d') return '\x04';
+  if (key === 'ctrl_z') return '\x1a';
+  if (key === 'ctrl_l') return '\x0c';
+
+  const tildeCode: Partial<Record<MobileTerminalKey, string>> = {
+    insert: '2',
+    delete: '3',
+    page_up: '5',
+    page_down: '6',
+    f5: '15',
+    f6: '17',
+    f7: '18',
+    f8: '19',
+    f9: '20',
+    f10: '21',
+    f11: '23',
+    f12: '24',
+  };
+  const number = tildeCode[key];
+  if (number) {
+    return modifierCode ? `\x1b[${number};${modifierCode}~` : `\x1b[${number}~`;
   }
 
-  const final = {
+  const fn1To4Final: Partial<Record<MobileTerminalKey, string>> = {
+    f1: 'P',
+    f2: 'Q',
+    f3: 'R',
+    f4: 'S',
+  };
+  const fnFinal = fn1To4Final[key];
+  if (fnFinal) {
+    return modifierCode ? `\x1b[1;${modifierCode}${fnFinal}` : `\x1bO${fnFinal}`;
+  }
+
+  const cursorFinal: Partial<Record<MobileTerminalKey, string>> = {
     arrow_up: 'A',
     arrow_down: 'B',
     arrow_right: 'C',
     arrow_left: 'D',
     home: 'H',
     end: 'F',
-  }[key];
-  if (modifier) {
-    const modifierCode = modifier === 'ctrl' ? 5 : 3;
+  };
+  const final = cursorFinal[key];
+  if (!final) return '';
+  if (modifierCode) {
     return `\x1b[1;${modifierCode}${final}`;
   }
   return applicationCursorMode ? `\x1bO${final}` : `\x1b[${final}`;
