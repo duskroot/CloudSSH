@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.4] - 2026-10-12
+
+### Changed
+
+- **移动端快捷键与输入模块代码结构优化**：
+  - **按键序列映射表模块化**：将波浪号功能键、F1–F4 键、光标导航键与 Shift 符号映射提取为常量 Map 字典，避免按键事件处理时频繁创建临时对象，消除多层嵌套三元表达式。
+  - **平台环境检测现代化**：解耦已弃用的 `navigator.platform`，新增 `IOSNavigatorLike` 接口支持现代 `userAgentData.platform` 并安全回退，消除静态分析与编译弃用告警。
+  - **快捷键校验逻辑拆分**：将高认知复杂度的 `normalizeMobileShortcutsPayload` 函数拆解为按键载荷提取、预设项规范化、自定义项校验等单一职责纯函数，提高代码可读性与可维护性。
+  - **代码清理与遍历优化**：清理未使用的类型导入，改用 `for...of` 遍历修饰键按钮，补齐现代平台检测单测用例。
+
 ## [2.6.3] - 2026-10-12
 
 ### Added
