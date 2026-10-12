@@ -177,14 +177,110 @@ export function buildDefaultMobileShortcuts(): MobileShortcutsPayload {
   return {
     shortcuts: DEFAULT_MOBILE_SHORTCUT_IDS.map((id) => {
       const preset = PRESET_SHORTCUT_MAP.get(id);
-      return {
+      const item: MobileShortcutItem = {
         id,
         label: preset?.label ?? id,
         type: preset?.type ?? 'key',
-        ...(preset?.value ? { value: preset.value } : {}),
       };
+      if (preset?.value) {
+        item.value = preset.value;
+      }
+      return item;
     }),
   };
+}
+
+function extractRawShortcuts(input: unknown): unknown[] | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+  if (Array.isArray(input)) {
+    return input;
+  }
+  if ('shortcuts' in input && Array.isArray((input as Record<string, unknown>).shortcuts)) {
+    return (input as Record<string, unknown>).shortcuts as unknown[];
+  }
+  return null;
+}
+
+function normalizePresetShortcutItem(
+  id: string,
+  rawItem: Record<string, unknown>,
+  preset: PresetShortcutDefinition
+): MobileShortcutItem {
+  let label = preset.label;
+  const rawLabel = rawItem.label;
+  if (typeof rawLabel === 'string') {
+    const trimmedLabel = rawLabel.trim();
+    if (trimmedLabel && [...trimmedLabel].length <= SHORTCUT_LABEL_MAX_LENGTH) {
+      label = trimmedLabel;
+    }
+  }
+
+  const result: MobileShortcutItem = {
+    id,
+    label,
+    type: preset.type,
+  };
+  if (preset.value) {
+    result.value = preset.value;
+  }
+  return result;
+}
+
+function normalizeCustomShortcutItem(
+  id: string,
+  rawItem: Record<string, unknown>
+): MobileShortcutItem | null {
+  const isCustomId = id.startsWith('custom_') || id.startsWith('c_');
+  const itemType = rawItem.type;
+  if (!isCustomId && itemType !== 'text') {
+    return null;
+  }
+
+  const rawLabel = rawItem.label;
+  const rawValue = rawItem.value;
+  if (typeof rawLabel !== 'string' || typeof rawValue !== 'string') {
+    return null;
+  }
+
+  const label = rawLabel.trim();
+  const value = rawValue;
+  if (!label || [...label].length > SHORTCUT_LABEL_MAX_LENGTH) {
+    return null;
+  }
+  if (!value || [...value].length > SHORTCUT_VALUE_MAX_LENGTH) {
+    return null;
+  }
+
+  return {
+    id,
+    label,
+    type: 'text',
+    value,
+  };
+}
+
+function normalizeSingleShortcutItem(item: unknown): MobileShortcutItem | null {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const rawItem = item as Record<string, unknown>;
+  const rawId = rawItem.id;
+  if (typeof rawId !== 'string') {
+    return null;
+  }
+  const id = rawId.trim();
+  if (!id) {
+    return null;
+  }
+
+  const preset = PRESET_SHORTCUT_MAP.get(id);
+  if (preset) {
+    return normalizePresetShortcutItem(id, rawItem, preset);
+  }
+  return normalizeCustomShortcutItem(id, rawItem);
 }
 
 /**
@@ -198,82 +294,18 @@ export function buildDefaultMobileShortcuts(): MobileShortcutsPayload {
  * 5. 任何不合规项都会导致整批拒绝并返回 null（fail closed）。
  */
 export function normalizeMobileShortcutsPayload(input: unknown): MobileShortcutsPayload | null {
-  if (!input || typeof input !== 'object') return null;
-
-  let rawShortcuts: unknown = null;
-  if (Array.isArray(input)) {
-    rawShortcuts = input;
-  } else if ('shortcuts' in input && Array.isArray((input as Record<string, unknown>).shortcuts)) {
-    rawShortcuts = (input as Record<string, unknown>).shortcuts;
-  } else {
-    return null;
-  }
-
-  if (!Array.isArray(rawShortcuts)) return null;
-  if (rawShortcuts.length === 0 || rawShortcuts.length > MAX_MOBILE_SHORTCUTS) {
+  const rawShortcuts = extractRawShortcuts(input);
+  if (!rawShortcuts || rawShortcuts.length === 0 || rawShortcuts.length > MAX_MOBILE_SHORTCUTS) {
     return null;
   }
 
   const normalized: MobileShortcutItem[] = [];
-
-  for (let i = 0; i < rawShortcuts.length; i++) {
-    const item = rawShortcuts[i];
-    if (!item || typeof item !== 'object') return null;
-
-    const rawId = (item as Record<string, unknown>).id;
-    if (typeof rawId !== 'string') return null;
-    const id = rawId.trim();
-    if (!id) return null;
-
-    const preset = PRESET_SHORTCUT_MAP.get(id);
-
-    if (preset) {
-      // 预设按键
-      let label = preset.label;
-      const rawLabel = (item as Record<string, unknown>).label;
-      if (typeof rawLabel === 'string') {
-        const trimmedLabel = rawLabel.trim();
-        if (trimmedLabel && [...trimmedLabel].length <= SHORTCUT_LABEL_MAX_LENGTH) {
-          label = trimmedLabel;
-        }
-      }
-
-      normalized.push({
-        id,
-        label,
-        type: preset.type,
-        ...(preset.value ? { value: preset.value } : {}),
-      });
-    } else {
-      // 自定义按键
-      const isCustomId = id.startsWith('custom_') || id.startsWith('c_');
-      const itemType = (item as Record<string, unknown>).type;
-      if (!isCustomId && itemType !== 'text') {
-        return null;
-      }
-
-      const rawLabel = (item as Record<string, unknown>).label;
-      const rawValue = (item as Record<string, unknown>).value;
-      if (typeof rawLabel !== 'string' || typeof rawValue !== 'string') {
-        return null;
-      }
-
-      const label = rawLabel.trim();
-      const value = rawValue; // 发送值允许包含特殊字符，但非空
-      if (!label || [...label].length > SHORTCUT_LABEL_MAX_LENGTH) {
-        return null;
-      }
-      if (!value || [...value].length > SHORTCUT_VALUE_MAX_LENGTH) {
-        return null;
-      }
-
-      normalized.push({
-        id,
-        label,
-        type: 'text',
-        value,
-      });
+  for (const item of rawShortcuts) {
+    const itemResult = normalizeSingleShortcutItem(item);
+    if (!itemResult) {
+      return null;
     }
+    normalized.push(itemResult);
   }
 
   return { shortcuts: normalized };

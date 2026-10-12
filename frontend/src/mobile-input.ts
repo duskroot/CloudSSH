@@ -83,7 +83,7 @@ export function diffTextareaInput(oldValue: string, newValue: string): string {
   }
 
   const removedCount = oldValue.length - commonPrefixLength;
-  return `${'\x7f'.repeat(removedCount)}${newValue.substring(commonPrefixLength)}`;
+  return `${'\x7f'.repeat(removedCount)}${newValue.slice(commonPrefixLength)}`;
 }
 
 /** 精确识别 xterm 的焦点报告，不能将方向键、Alt 或粘贴等 ESC 序列一并视为报告。 */
@@ -91,62 +91,118 @@ export function isTerminalFocusReport(data: string): boolean {
   return data === '\x1b[I' || data === '\x1b[O';
 }
 
+const SHIFT_SYMBOL_MAP = new Map<string, string>([
+  ['1', '!'],
+  ['2', '@'],
+  ['3', '#'],
+  ['4', '$'],
+  ['5', '%'],
+  ['6', '^'],
+  ['7', '&'],
+  ['8', '*'],
+  ['9', '('],
+  ['0', ')'],
+  ['-', '_'],
+  ['=', '+'],
+  ['[', '{'],
+  [']', '}'],
+  ['\\', '|'],
+  [';', ':'],
+  ["'", '"'],
+  [',', '<'],
+  ['.', '>'],
+  ['/', '?'],
+  ['`', '~'],
+]);
+
+const MODIFIER_CODE_MAP = {
+  ctrl: 5,
+  alt: 3,
+  shift: 2,
+} satisfies Record<MobileModifier, number>;
+
+const SIMPLE_MACRO_SEQUENCES = new Map<MobileTerminalKey, string>([
+  ['backtab', '\x1b[Z'],
+  ['ctrl_c', '\x03'],
+  ['ctrl_d', '\x04'],
+  ['ctrl_z', '\x1a'],
+  ['ctrl_l', '\x0c'],
+]);
+
+const TILDE_KEY_CODES = new Map<MobileTerminalKey, string>([
+  ['insert', '2'],
+  ['delete', '3'],
+  ['page_up', '5'],
+  ['page_down', '6'],
+  ['f5', '15'],
+  ['f6', '17'],
+  ['f7', '18'],
+  ['f8', '19'],
+  ['f9', '20'],
+  ['f10', '21'],
+  ['f11', '23'],
+  ['f12', '24'],
+]);
+
+const FN1_TO_4_FINALS = new Map<MobileTerminalKey, string>([
+  ['f1', 'P'],
+  ['f2', 'Q'],
+  ['f3', 'R'],
+  ['f4', 'S'],
+]);
+
+const CURSOR_KEY_FINALS = new Map<MobileTerminalKey, string>([
+  ['arrow_up', 'A'],
+  ['arrow_down', 'B'],
+  ['arrow_right', 'C'],
+  ['arrow_left', 'D'],
+  ['home', 'H'],
+  ['end', 'F'],
+]);
+
+function applyShiftToSingleChar(char: string): string {
+  const code = char.charCodeAt(0);
+  if (code >= 97 && code <= 122) {
+    return char.toUpperCase();
+  }
+  return SHIFT_SYMBOL_MAP.get(char) ?? char;
+}
+
 /** 将移动端一次性 Ctrl/Alt/Shift 状态应用到下一段终端输入。 */
 export function applyMobileModifier(
   data: string,
   modifier: MobileModifier | null
 ): { data: string; consumed: boolean } {
-  if (!modifier || !data) return { data, consumed: false };
+  if (!modifier || !data) {
+    return { data, consumed: false };
+  }
 
   if (modifier === 'alt') {
     return { data: `\x1b${data}`, consumed: true };
   }
 
   if (modifier === 'shift') {
-    if (data === '\t') return { data: '\x1b[Z', consumed: true };
-    if (data.length === 1) {
-      const code = data.charCodeAt(0);
-      if (code >= 97 && code <= 122) {
-        return { data: data.toUpperCase(), consumed: true };
-      }
-      const shiftMap: Record<string, string> = {
-        '1': '!',
-        '2': '@',
-        '3': '#',
-        '4': '$',
-        '5': '%',
-        '6': '^',
-        '7': '&',
-        '8': '*',
-        '9': '(',
-        '0': ')',
-        '-': '_',
-        '=': '+',
-        '[': '{',
-        ']': '}',
-        '\\': '|',
-        ';': ':',
-        "'": '"',
-        ',': '<',
-        '.': '>',
-        '/': '?',
-        '`': '~',
-      };
-      if (shiftMap[data]) {
-        return { data: shiftMap[data], consumed: true };
-      }
+    if (data === '\t') {
+      return { data: '\x1b[Z', consumed: true };
     }
-    return { data, consumed: true };
+    const shifted = data.length === 1 ? applyShiftToSingleChar(data) : data;
+    return { data: shifted, consumed: true };
   }
 
-  if (data.length !== 1) return { data, consumed: true };
-  if (data === ' ') return { data: '\x00', consumed: true };
+  if (data.length !== 1) {
+    return { data, consumed: true };
+  }
+  if (data === ' ') {
+    return { data: '\x00', consumed: true };
+  }
   const originalCode = data.charCodeAt(0);
   const code = originalCode >= 97 && originalCode <= 122 ? originalCode - 32 : originalCode;
   if (code >= 64 && code <= 95) {
     return { data: String.fromCharCode(code & 0x1f), consumed: true };
   }
-  if (data === '?') return { data: '\x7f', consumed: true };
+  if (data === '?') {
+    return { data: '\x7f', consumed: true };
+  }
   return { data, consumed: true };
 }
 
@@ -156,68 +212,59 @@ export function mobileTerminalKeySequence(
   applicationCursorMode: boolean,
   modifier: MobileModifier | null
 ): string {
-  const modifierCode =
-    modifier === 'ctrl' ? 5 : modifier === 'alt' ? 3 : modifier === 'shift' ? 2 : null;
+  const modifierCode = modifier ? MODIFIER_CODE_MAP[modifier] : null;
 
-  if (key === 'escape') return modifier === 'alt' ? '\x1b\x1b' : '\x1b';
-  if (key === 'tab') return modifier === 'shift' ? '\x1b[Z' : '\t';
-  if (key === 'backtab') return '\x1b[Z';
-  if (key === 'ctrl_c') return '\x03';
-  if (key === 'ctrl_d') return '\x04';
-  if (key === 'ctrl_z') return '\x1a';
-  if (key === 'ctrl_l') return '\x0c';
+  if (key === 'escape') {
+    return modifier === 'alt' ? '\x1b\x1b' : '\x1b';
+  }
+  if (key === 'tab') {
+    return modifier === 'shift' ? '\x1b[Z' : '\t';
+  }
 
-  const tildeCode: Partial<Record<MobileTerminalKey, string>> = {
-    insert: '2',
-    delete: '3',
-    page_up: '5',
-    page_down: '6',
-    f5: '15',
-    f6: '17',
-    f7: '18',
-    f8: '19',
-    f9: '20',
-    f10: '21',
-    f11: '23',
-    f12: '24',
-  };
-  const number = tildeCode[key];
+  const macro = SIMPLE_MACRO_SEQUENCES.get(key);
+  if (macro) {
+    return macro;
+  }
+
+  const number = TILDE_KEY_CODES.get(key);
   if (number) {
     return modifierCode ? `\x1b[${number};${modifierCode}~` : `\x1b[${number}~`;
   }
 
-  const fn1To4Final: Partial<Record<MobileTerminalKey, string>> = {
-    f1: 'P',
-    f2: 'Q',
-    f3: 'R',
-    f4: 'S',
-  };
-  const fnFinal = fn1To4Final[key];
+  const fnFinal = FN1_TO_4_FINALS.get(key);
   if (fnFinal) {
     return modifierCode ? `\x1b[1;${modifierCode}${fnFinal}` : `\x1bO${fnFinal}`;
   }
 
-  const cursorFinal: Partial<Record<MobileTerminalKey, string>> = {
-    arrow_up: 'A',
-    arrow_down: 'B',
-    arrow_right: 'C',
-    arrow_left: 'D',
-    home: 'H',
-    end: 'F',
-  };
-  const final = cursorFinal[key];
-  if (!final) return '';
+  const final = CURSOR_KEY_FINALS.get(key);
+  if (!final) {
+    return '';
+  }
   if (modifierCode) {
     return `\x1b[1;${modifierCode}${final}`;
   }
   return applicationCursorMode ? `\x1bO${final}` : `\x1b[${final}`;
 }
 
-export function isIOSLike(
-  navigatorLike: Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'>
-): boolean {
-  return (
+export interface IOSNavigatorLike {
+  userAgent: string;
+  maxTouchPoints: number;
+  platform?: string;
+  userAgentData?: { platform?: string };
+}
+
+export function isIOSLike(navigatorLike: IOSNavigatorLike): boolean {
+  const platform = navigatorLike.userAgentData?.platform ?? navigatorLike.platform ?? '';
+  if (
     /iPad|iPhone|iPod/.test(navigatorLike.userAgent) ||
-    (navigatorLike.platform === 'MacIntel' && navigatorLike.maxTouchPoints > 1)
+    /^(iOS|iPadOS|iPhone|iPad|iPod)$/i.test(platform)
+  ) {
+    return true;
+  }
+  return (
+    (platform === 'MacIntel' ||
+      platform === 'macOS' ||
+      /\bMacintosh\b/.test(navigatorLike.userAgent)) &&
+    navigatorLike.maxTouchPoints > 1
   );
 }

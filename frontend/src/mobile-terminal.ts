@@ -1,14 +1,10 @@
-import { onLocaleChange, t } from './i18n';
-import {
-  isMobileTerminalKey,
-  type MobileModifier,
-  type MobileTerminalKey,
-} from './mobile-input';
-import type { MobileShortcutsManager } from './mobile-shortcuts-manager';
 import {
   buildDefaultMobileShortcuts,
   PRESET_SHORTCUT_MAP,
 } from '../../src/mobile-shortcuts-schema';
+import { onLocaleChange, t } from './i18n';
+import { isMobileTerminalKey, type MobileModifier } from './mobile-input';
+import type { MobileShortcutsManager } from './mobile-shortcuts-manager';
 import type { SSHTerminal } from './terminal';
 import { notify } from './ui-feedback';
 
@@ -277,11 +273,11 @@ export class MobileTerminalController {
 
   private syncModifierButtons(): void {
     const active = this.getTerminal()?.getMobileModifier() ?? null;
-    this.modifierButtons.forEach((button) => {
+    for (const button of this.modifierButtons) {
       const pressed = button.dataset.mobileModifier === active;
       button.classList.toggle('is-active', pressed);
       button.setAttribute('aria-pressed', String(pressed));
-    });
+    }
   }
 
   private syncTerminalState(): void {

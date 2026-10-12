@@ -31,6 +31,27 @@ describe('移动端 IME 输入补偿', () => {
     expect(isIOSLike({ userAgent: 'Mozilla/5.0', platform: 'MacIntel', maxTouchPoints: 0 })).toBe(
       false
     );
+    expect(
+      isIOSLike({
+        userAgent: 'Mozilla/5.0',
+        maxTouchPoints: 5,
+        userAgentData: { platform: 'macOS' },
+      })
+    ).toBe(true);
+    expect(
+      isIOSLike({
+        userAgent: 'Mozilla/5.0',
+        maxTouchPoints: 5,
+        userAgentData: { platform: 'iOS' },
+      })
+    ).toBe(true);
+    expect(
+      isIOSLike({
+        userAgent: 'Mozilla/5.0',
+        maxTouchPoints: 0,
+        userAgentData: { platform: 'macOS' },
+      })
+    ).toBe(false);
   });
 });
 

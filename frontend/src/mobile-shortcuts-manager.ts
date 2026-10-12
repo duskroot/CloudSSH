@@ -9,7 +9,7 @@ import {
   SHORTCUT_LABEL_MAX_LENGTH,
   SHORTCUT_VALUE_MAX_LENGTH,
 } from '../../src/mobile-shortcuts-schema';
-import { t, translateDocument, type TranslationKey } from './i18n';
+import { type TranslationKey, t, translateDocument } from './i18n';
 import { notify } from './ui-feedback';
 
 const LOCAL_CACHE_KEY = 'cloudssh_mobile_shortcuts_v1';
@@ -452,13 +452,7 @@ export class MobileShortcutsManager {
 
   private togglePresetInDraft(preset: PresetShortcutDefinition): void {
     const idx = this.draftShortcuts.findIndex((item) => item.id === preset.id);
-    if (idx !== -1) {
-      if (this.draftShortcuts.length <= 1) {
-        notify(t('mobileShortcuts.minOneError'), { variant: 'warning' });
-        return;
-      }
-      this.draftShortcuts.splice(idx, 1);
-    } else {
+    if (idx === -1) {
       if (this.draftShortcuts.length >= MAX_MOBILE_SHORTCUTS) {
         notify(t('mobileShortcuts.maxCountError', { max: MAX_MOBILE_SHORTCUTS }), {
           variant: 'warning',
@@ -474,6 +468,12 @@ export class MobileShortcutsManager {
         itemToPush.value = preset.value;
       }
       this.draftShortcuts.push(itemToPush);
+    } else {
+      if (this.draftShortcuts.length <= 1) {
+        notify(t('mobileShortcuts.minOneError'), { variant: 'warning' });
+        return;
+      }
+      this.draftShortcuts.splice(idx, 1);
     }
     this.renderDraftState();
   }
