@@ -118,11 +118,12 @@ describe('MobileShortcutsManager', () => {
       'utf8'
     );
 
-    // 源码断言守护：label 输入框必须使用 !w-24 shrink-0 锁定宽度，禁止被 .terminal-input 的 width: 100% 覆盖或 flex 挤压
-    expect(tsSource).toMatch(/customLabelInput\.className\s*=\s*'terminal-input\s+!w-24\s+shrink-0/);
-    expect(tsSource).toMatch(/customValueInput\.className\s*=\s*'terminal-input\s+flex-1\s+min-w-0/);
+    // 源码断言守护：label 输入框必须使用 !w-24 shrink-0 锁定宽度，使用 text-[11px] 小字号
+    expect(tsSource).toMatch(/customLabelInput\.className\s*=\s*'terminal-input\s+!w-24\s+shrink-0\s+text-\[11px\]/);
+    expect(tsSource).toMatch(/customValueInput\.className\s*=\s*'terminal-input\s+flex-1\s+min-w-0\s+text-\[11px\]/);
 
-    // CSS 规则守护：显式声明 #mobile-shortcut-custom-label 的固定宽度与不收缩
+    // CSS 规则守护：显式声明小字号 11px !important 与固定宽度 96px
+    expect(cssSource).toMatch(/#mobile-shortcut-custom-label,\s*#mobile-shortcut-custom-value\s*\{[\s\S]*?font-size:\s*11px\s*!important;/);
     expect(cssSource).toMatch(/#mobile-shortcut-custom-label\s*\{[\s\S]*?width:\s*96px;[\s\S]*?flex:\s*0\s+0\s+96px;/);
   });
 });
