@@ -233,7 +233,7 @@ export class MobileShortcutsManager {
     customLabelInput.id = 'mobile-shortcut-custom-label';
     customLabelInput.type = 'text';
     customLabelInput.maxLength = SHORTCUT_LABEL_MAX_LENGTH;
-    customLabelInput.className = 'terminal-input w-24 text-xs font-mono';
+    customLabelInput.className = 'terminal-input !w-24 shrink-0 text-xs font-mono';
     customLabelInput.dataset.i18nPlaceholder = 'mobileShortcuts.customLabelPlaceholder';
     customLabelInput.placeholder = t('mobileShortcuts.customLabelPlaceholder');
 

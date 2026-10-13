@@ -4788,3 +4788,9 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
   color: var(--primary);
 }
 
+#mobile-shortcut-custom-label {
+  width: 96px;
+  flex: 0 0 96px;
+}
+
+
