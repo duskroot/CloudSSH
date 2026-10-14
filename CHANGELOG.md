@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.7] - 2026-10-14
+
+### Added
+
+- **SSH 保活探针周期性物理延迟刷新**：
+  - 在 `SSHSession`（`src/worker/ssh-session.ts`）中复用现有的 25 秒 `keepalive@openssh.com`（`SSH_MSG_GLOBAL_REQUEST`）周期保活机制，发包前打上高精度时间戳，收到远端应答（`SSH_MSG_REQUEST_SUCCESS` / `SSH_MSG_REQUEST_FAILURE`）后计算真实应用层 RTT，并通过 WebSocket 向前端推送最新 `{ type: 'rtt', latency, colo }` 消息，实现第一段物理基准延迟的周期性平滑刷新。
+  - 通过 `onRttUpdated` 回调联动 `SSHSessionDO`（`src/worker/durable-object.ts`）内存中的 `sessionBaselines`，确保在弱网断线重连（reattach）时新客户端能即时继承到最新的物理延迟基线。
+  - 严格保持跳板机嵌套中间会话（Hop Session）与断线暂存态（detached）静默，不污染前端状态栏并不误刷用户空闲超时。
+
+### Fixed
+
+- **E2E 测试环境全链路网络隔离与 API 自动守卫**：
+  - **自动 Context 级 API 隔离 Fixture**：新增 `tests/e2e/fixtures.ts` 与 `tests/e2e/api-mocks.ts`，全量 24 个浏览器 spec 统一接入自动 fixture；在浏览器内核级自动提供基础初始化 GET Mock（`/api/config`、`/api/auth/me`、`/api/user/theme` 与 `/api/user/mobile-shortcuts`），彻底杜绝公共探测请求漏网穿透。
+  - **漏网 API 严格失败守卫**：未声明的 API 请求在测试清理阶段直接判定用例失败并附脱敏路径证据（即使应用代码已自行 `catch`），同时禁止 Service Worker 绕过路由，根除“静默吞错、虚假通过”隐患。
+  - **Vite E2E 模式代理隔离与 501 JSON 兜底**：在 `frontend/vite.config.ts` 中针对 E2E 模式完全禁用 8787 后端代理，新增 `frontend/e2e-server.ts` 插件为漏网请求返回带标记的 501 JSON，防止漏网请求回退至 SPA 首页 HTML 或在无后端环境下抛出 `AggregateError [ECONNREFUSED]` 污染控制台。
+  - **测试用例路由补齐与覆盖度提升**：新增 `tests/e2e/api-isolation.spec.ts` 守卫测试与 `tests/e2e/theme-sync.spec.ts` 主题同步全生命周期测试（覆盖 GET 成功/HTTP 503/网络中断、PUT 载荷校验、带参数 DELETE 及本地资产回退），并在 `tests/e2e-fixtures.test.ts` 中建立 spec 导入规范静态门禁，确保未来新增用例绝不绕过安全守卫。
+
 ## [2.6.6] - 2026-10-14
 
 ### Added
