@@ -18,6 +18,7 @@ import {
 } from './sftp-helpers';
 import { updateSelection } from './sftp-selection';
 import { Deferred, UploadWaiter } from './sftp-transfer';
+import { attachDrawerSwipeToClose } from './drawer-swipe';
 import {
   confirmDeleteItems,
   promptMkdirName,
@@ -117,6 +118,10 @@ export class SFTPPanel {
     this.getWebSocketUrl = getWebSocketUrl;
     this.container = this.createPanel();
     document.body.appendChild(this.container);
+    attachDrawerSwipeToClose(this.container, {
+      headerSelector: '.sftp-panel-header',
+      onClose: () => this.hide(),
+    });
 
     this.editorCoordinator = new SFTPEditorCoordinator({
       isSftpReady: () => this.sftpReady,

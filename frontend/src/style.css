@@ -363,6 +363,11 @@ body.terminal-active {
   overscroll-behavior: none;
 }
 
+/* 关闭 iOS/Android 原生点击灰色闪烁：按压反馈统一由各组件 :active 态表达 */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 #terminal-section {
   height: var(--visual-viewport-height);
   min-height: 0;
@@ -951,6 +956,13 @@ html[data-component-card] .server-card:hover {
     inset 0 1px 0 var(--edge-highlight);
 }
 
+/* 触摸/鼠标按压反馈：轻缩放即可，移动端无 hover 时的主要交互确认 */
+.server-card:active,
+html[data-component-card] .server-card:active {
+  transform: scale(0.98);
+  transition-duration: var(--motion-fast);
+}
+
 /* 指针聚光（全主题）：--mx / --my 由 main.ts 的 rAF 节流追踪写入。
    用 ::after 承载（::before 留给 liquid 风格的镜面天光），软光覆盖在内容之上。 */
 html:not([data-ui-style='liquid']) .server-card::after {
@@ -1087,9 +1099,44 @@ html:not([data-ui-style='liquid']) .sftp-entry:hover::after {
   opacity: var(--spotlight-opacity);
 }
 
+/* 抽屉滚动容器：滚到边界不再把滚动穿透给背景页（移动端橡皮筋防连带） */
+#sftp-file-list,
+#agent-messages,
+#snippet-list {
+  overscroll-behavior-y: contain;
+}
+
+@keyframes mobile-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-more-menu:not(.hidden) {
+    animation: none;
+  }
+}
+
+/* 触屏按压反馈：无 hover 时给即时的选中色确认 */
+.sftp-entry:active {
+  background-color: var(--accent-bg);
+}
+
 @media (hover: none) and (pointer: coarse) {
   html:not([data-ui-style='liquid']) .sftp-entry::after {
     display: none;
+  }
+
+  /* 触屏行触控目标加高（约 36px 行高），桌面密度不变 */
+  .sftp-entry {
+    padding-top: 10px;
+    padding-bottom: 10px;
   }
 }
 
@@ -1254,8 +1301,8 @@ html[data-ui-motion='none'] .auth-aurora::after {
 
 .app-toast-container {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
   z-index: 300;
   display: flex;
   width: min(380px, calc(100vw - 32px));
@@ -1794,9 +1841,9 @@ html[data-ui-motion='none'] .auth-aurora::after {
 
 @media (max-width: 520px) {
   .app-toast-container {
-    right: 12px;
-    bottom: 12px;
-    width: calc(100vw - 24px);
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right));
   }
   .app-dialog {
     width: calc(100vw - 24px);
@@ -1987,11 +2034,16 @@ html[data-ui-motion='none'] .auth-aurora::after {
   transition:
     color var(--motion-fast) ease,
     background-color var(--motion-fast) ease,
-    border-color var(--motion-fast) ease;
+    border-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--spring-ease);
   white-space: nowrap;
   max-width: 180px;
   position: relative;
   flex-shrink: 0;
+}
+
+.tab-item:active {
+  transform: scale(0.95);
 }
 
 .tab-item:hover {
@@ -4478,6 +4530,12 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
     border: 1px solid var(--border-strong);
     border-radius: var(--modal-radius);
     box-shadow: var(--shadow-floating);
+    transform-origin: top right;
+  }
+
+  /* hidden→flex 切换自动重播的入场动效（弹簧，一次性） */
+  .mobile-more-menu:not(.hidden) {
+    animation: mobile-menu-in var(--motion-normal) var(--spring-ease) backwards;
   }
 
   .mobile-more-menu > button,

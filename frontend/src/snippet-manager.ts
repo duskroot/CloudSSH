@@ -15,6 +15,7 @@ import {
   SNIPPET_NAME_MAX_LENGTH,
 } from '../../src/snippet-schema';
 import { copyTextToClipboard } from './clipboard';
+import { attachDrawerSwipeToClose } from './drawer-swipe';
 import { onLocaleChange, t } from './i18n';
 import {
   type CommandSnippet,
@@ -242,6 +243,10 @@ export class SnippetManager {
     panel.id = PANEL_ID;
     panel.style.transform = 'translateX(100%)';
     this.panelContainer = panel;
+    attachDrawerSwipeToClose(panel, {
+      headerSelector: '.sftp-panel-header',
+      onClose: () => this.close(),
+    });
 
     // 1. Header 栏
     panel.appendChild(this.createHeader());

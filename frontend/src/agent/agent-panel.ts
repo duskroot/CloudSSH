@@ -10,6 +10,7 @@ import {
   type UnifiedServerMemory,
 } from '../../../src/server-memory-schema';
 import { copyTextToClipboard } from '../clipboard';
+import { attachDrawerSwipeToClose } from '../drawer-swipe';
 import { getLocale, onLocaleChange, t, translateDocument } from '../i18n';
 import { confirmAction, notify } from '../ui-feedback';
 import { getTerminalFillCommand, normalizeCodeLanguage } from './code-actions';
@@ -357,6 +358,10 @@ export class AgentPanel {
     });
 
     this.parentEl.appendChild(this.panelEl);
+    attachDrawerSwipeToClose(this.panelEl, {
+      headerSelector: '.agent-panel-header',
+      onClose: () => this.hide(),
+    });
     this.messagesEl = this.panelEl.querySelector('#agent-messages');
     this.contextEl = this.panelEl.querySelector('#agent-context');
     this.inputEl = this.panelEl.querySelector('#agent-input') as HTMLTextAreaElement;
