@@ -181,6 +181,13 @@ test.describe('桌面视口', () => {
     await page.route('**/api/servers', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     );
+    await page.route('**/api/servers/*/memory', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ workLogs: [], knowledge: [] }),
+      })
+    );
     await page.goto('/?lang=zh-CN');
     await expect(page.locator('#user-space-section')).toBeVisible();
 

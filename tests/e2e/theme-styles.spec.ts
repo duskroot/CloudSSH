@@ -20,7 +20,7 @@ const server = {
 
 test.beforeEach(async ({ page }) => {
   await blockOptionalThirdPartyAssets(page);
-  await page.route('**/api/user/theme', (route) =>
+  await page.route('**/api/user/theme*', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
