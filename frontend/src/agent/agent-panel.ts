@@ -245,7 +245,7 @@ export class AgentPanel {
         <div class="agent-panel-header flex items-center justify-between px-4 h-12 border-b border-[var(--border)] bg-[var(--bg-elevated)] shrink-0">
           <div class="flex items-center gap-2 min-w-0">
             <span class="material-symbols-outlined text-[var(--accent-secondary)]" style="font-size: 18px; font-variation-settings: 'FILL' 1;">smart_toy</span>
-            <span class="text-xs font-bold tracking-[0.1em] text-[var(--accent-secondary)] truncate" data-i18n="agent.title">AI Agent 助手</span>
+            <span class="agent-panel-title text-xs font-bold tracking-[0.1em] text-[var(--accent-secondary)] truncate" data-i18n="agent.title">AI Agent 助手</span>
           </div>
           <div class="flex items-center gap-1.5">
             <div id="agent-mode-control" class="agent-mode-segmented" role="radiogroup" aria-label="Agent execution mode" data-active-mode="${this.agentMode}">

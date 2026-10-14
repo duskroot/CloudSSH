@@ -4732,6 +4732,23 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
 
   .agent-panel-header {
     min-height: 48px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  /* 头部右侧按钮组收紧，为标题腾出空间 */
+  .agent-panel-header > div:last-child {
+    gap: 4px;
+  }
+
+  .agent-panel-title {
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+
+  .agent-mode-btn {
+    padding: 1px 5px;
+    gap: 2px;
   }
 
   .agent-close-button {
@@ -4763,6 +4780,19 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
   .agent-desktop-close,
   .agent-header-btn .agent-desktop-close {
     display: none;
+  }
+
+  /* 特异性须压过基础规则 .agent-header-btn .material-symbols-outlined:not(...) 的
+     display: block（(0,3,0)），否则桌面 X 图标在移动端泄漏并被挤出屏幕 */
+  .agent-header-btn .material-symbols-outlined.agent-desktop-close {
+    display: none;
+  }
+
+  /* 快捷提示词方块：移动端换行自适应铺满，不再横向滚动裁切 */
+  #agent-quick-chips {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    overflow-x: visible;
   }
 
   .agent-quick-chip {
@@ -4826,6 +4856,13 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
 
   .cloudssh-search-box {
     max-width: calc(100% - 8px);
+  }
+}
+
+/* 窄屏手机：Agent 头部模式切换只留文字标签，避免标题被挤出 */
+@media (max-width: 520px) {
+  .agent-mode-btn .material-symbols-outlined {
+    display: none;
   }
 }
 
