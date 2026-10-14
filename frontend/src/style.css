@@ -65,7 +65,9 @@
      否则全高浮层会盖住顶栏的分段切换器，导致抽屉之间无法直接切换。
      移动端在响应式区块中复位为 0。 */
   --drawer-top: 4rem;
-  --shadow-card: none;
+  /* 隐形但合法的阴影（非 none）：none 与其他阴影层组合会使整条 box-shadow
+     声明非法被丢弃（hover 辉光、fx-glow 叠加均受影响），故用零透明阴影占位 */
+  --shadow-card: 0 0 0 0 rgba(0, 0, 0, 0);
   --shadow-modal: 0 18px 52px rgba(0, 0, 0, 0.48);
   --shadow-floating: 0 8px 28px rgba(0, 0, 0, 0.34);
   --surface-blur: 0px;
@@ -76,6 +78,12 @@
   --hover-lift: -2px;
   --visual-viewport-height: 100vh;
   --visual-viewport-offset-top: 0px;
+  /* 质感层：指针聚光 / 内缘微光 / 交错入场 / 按压回弹，全主题语义化 */
+  --spotlight-color: color-mix(in srgb, var(--accent) 12%, transparent);
+  --spotlight-opacity: 1;
+  --edge-highlight: color-mix(in srgb, var(--on-surface) 8%, transparent);
+  --stagger-step: 45ms;
+  --press-scale: 0.97;
 }
 
 @supports (height: 100dvh) {
@@ -144,7 +152,7 @@ html[data-ui-font="system"] {
 }
 
 html[data-ui-shadow="none"] {
-  --shadow-card: none;
+  --shadow-card: 0 0 0 0 rgba(0, 0, 0, 0);
   --shadow-modal: none;
   --shadow-floating: none;
   --surface-blur: 0px;
@@ -182,6 +190,9 @@ html[data-ui-motion="none"] {
   --motion-normal: 0ms;
   --motion-slow: 0ms;
   --hover-lift: 0px;
+  --spotlight-opacity: 0;
+  --stagger-step: 0ms;
+  --press-scale: 1;
 }
 
 html[data-ui-motion="reduced"] {
@@ -189,6 +200,7 @@ html[data-ui-motion="reduced"] {
   --motion-normal: 140ms;
   --motion-slow: 180ms;
   --hover-lift: -1px;
+  --stagger-step: 20ms;
 }
 
 html[data-ui-motion="full"] {
@@ -562,6 +574,11 @@ select optgroup {
   color: var(--on-accent);
 }
 
+/* 按压回弹：--press-scale 随 motion 档位收敛（none 时为 1 即禁用） */
+.cyber-button:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
 .connect-btn {
   border: 1px solid var(--accent);
   border-radius: var(--control-radius);
@@ -883,12 +900,179 @@ select optgroup {
   margin-top: auto;
 }
 
-.server-card:hover {
+/* 悬停反馈必须压过组件变体预设（data-component-card 的静态 border/shadow
+   特异性为 (0,2,1)，曾把 hover 的强调边框与辉光整体静默覆盖） */
+.server-card:hover,
+html[data-component-card] .server-card:hover {
   border-color: var(--accent);
   transform: translateY(var(--hover-lift));
   box-shadow:
     var(--shadow-card),
-    0 4px 20px var(--accent-glow);
+    0 4px 20px var(--accent-glow),
+    inset 0 1px 0 var(--edge-highlight);
+}
+
+/* 指针聚光（全主题）：--mx / --my 由 main.ts 的 rAF 节流追踪写入。
+   用 ::after 承载（::before 留给 liquid 风格的镜面天光），软光覆盖在内容之上。 */
+html:not([data-ui-style='liquid']) .server-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    240px circle at var(--mx, 50%) var(--my, 0%),
+    var(--spotlight-color),
+    transparent 65%
+  );
+  opacity: 0;
+  transition: opacity var(--motion-normal) ease;
+  z-index: 1;
+}
+
+html:not([data-ui-style='liquid']) .server-card:hover::after {
+  opacity: var(--spotlight-opacity);
+}
+
+@media (hover: none) and (pointer: coarse) {
+  html:not([data-ui-style='liquid']) .server-card::after {
+    display: none;
+  }
+}
+
+/* 交错入场：--stagger-index 由渲染层按卡片序号写入；
+   motion=none 时 --motion-slow 归零即瞬时完成，系统级减少动态则整体关闭 */
+.server-card--enter {
+  animation: server-card-enter var(--motion-slow) cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--stagger-index, 0) * var(--stagger-step));
+}
+
+@keyframes server-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .server-card--enter {
+    animation: none;
+  }
+}
+
+/* 骨架屏：服务器列表冷加载占位，闪烁微光复用主题表面色 */
+.skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  box-shadow: var(--shadow-card);
+  padding: var(--card-padding);
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: var(--control-radius);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--on-surface) 7%, transparent) 25%,
+    color-mix(in srgb, var(--on-surface) 14%, transparent) 50%,
+    color-mix(in srgb, var(--on-surface) 7%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s linear infinite;
+}
+
+@keyframes skeleton-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+html[data-ui-motion='none'] .skeleton-line {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line {
+    animation: none;
+  }
+}
+
+/* ==================== 认证页氛围层（Auth Aurora） ====================
+   双团低透明度主题色光晕，blur 柔化 + 缓慢漂移，z 序位于表单（z-10）之下 */
+.auth-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.auth-aurora::before,
+.auth-aurora::after {
+  content: '';
+  position: absolute;
+  width: 55vmax;
+  height: 55vmax;
+  border-radius: 50%;
+  filter: blur(80px);
+}
+
+.auth-aurora::before {
+  top: -18%;
+  left: -12%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--accent) 16%, transparent),
+    transparent 70%
+  );
+  animation: auth-aurora-drift 26s ease-in-out infinite alternate;
+}
+
+.auth-aurora::after {
+  right: -14%;
+  bottom: -22%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--accent-secondary) 14%, transparent),
+    transparent 70%
+  );
+  animation: auth-aurora-drift 32s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes auth-aurora-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(6%, 8%, 0) scale(1.12);
+  }
+}
+
+html[data-ui-motion='none'] .auth-aurora::before,
+html[data-ui-motion='none'] .auth-aurora::after {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-aurora::before,
+  .auth-aurora::after {
+    animation: none;
+  }
+}
+
+/* 认证面板：用主题化 modal 阴影替代固定黑色 shadow-2xl，叠加内缘微光 */
+#auth-section .cyber-box {
+  box-shadow:
+    var(--shadow-modal),
+    inset 0 1px 0 var(--edge-highlight);
 }
 
 /* 卡片删除动画 */
