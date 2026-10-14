@@ -415,6 +415,7 @@ export const zhTW = {
   'sftp.modified': '修改時間',
   'sftp.actions': '操作',
   'sftp.empty': '此目錄為空',
+  'sftp.emptyHint': '拖曳檔案至此面板即可上傳',
   'sftp.connecting': '正在連線 SFTP…',
   'sftp.reconnecting': '正在重新連線 SFTP…',
   'sftp.waitingWebSocket': '正在等待 SFTP 連線位址…',

@@ -454,6 +454,7 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   'sftp.modified': 'Modified',
   'sftp.actions': 'Actions',
   'sftp.empty': 'This directory is empty',
+  'sftp.emptyHint': 'Drag files into this panel to upload',
   'sftp.connecting': 'Connecting to SFTP…',
   'sftp.reconnecting': 'Reconnecting to SFTP…',
   'sftp.waitingWebSocket': 'Waiting for the SFTP connection URL…',

@@ -906,7 +906,7 @@ function initPointerSpecularTracking(): void {
     'pointermove',
     (e: PointerEvent) => {
       const card = (e.target as HTMLElement | null)?.closest?.(
-        '.server-card, .cyber-box'
+        '.server-card, .cyber-box, .sftp-entry'
       ) as HTMLElement | null;
       if (!card) {
         targetCard = null;

@@ -414,6 +414,7 @@ export const zhCN = {
   'sftp.modified': '修改时间',
   'sftp.actions': '操作',
   'sftp.empty': '此目录为空',
+  'sftp.emptyHint': '拖拽文件到此面板即可上传',
   'sftp.connecting': '正在连接 SFTP…',
   'sftp.reconnecting': '正在重新连接 SFTP…',
   'sftp.waitingWebSocket': '正在等待 SFTP 连接地址…',
