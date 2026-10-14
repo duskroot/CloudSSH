@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite';
+import { e2eApiIsolation } from './e2e-server';
 
 export default defineConfig(({ mode }) => {
-  const isE2E = process.env.E2E_TEST === 'true' || mode === 'test';
+  const isE2E = process.env.E2E_TEST === 'true' || mode === 'e2e';
 
   return {
     // @xterm/xterm 6 ships pre-minified ESM. Re-running esbuild's syntax
@@ -12,10 +13,10 @@ export default defineConfig(({ mode }) => {
     esbuild: {
       minifySyntax: false,
     },
+    plugins: isE2E ? [e2eApiIsolation()] : [],
     server: {
-      // 本地全栈开发 (pnpm dev) 时代理到 8787 (wrangler dev)。
-      // E2E 测试运行期间所有 API 均由 Playwright page.route() 在浏览器内核层拦截，不启动 8787 后端，
-      // 禁用代理以避免未 mock 的非关键探测请求触发 ECONNREFUSED 堆栈报错刷屏。
+      // 本地全栈开发代理到 wrangler；E2E 不启动后端，API 由自动 fixture 拦截。
+      // 漏网请求由 E2E 专用中间件返回带标记的 501 JSON，绝不落入 SPA HTML 回退。
       proxy: isE2E
         ? undefined
         : {

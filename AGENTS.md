@@ -298,7 +298,9 @@ pnpm run verify      # typecheck + test + build:frontend + test:e2e 完整门禁
 
 - 测试文件位于 `tests/` 目录，`.test.ts` 后缀（详见 Key Directories 中的 `tests/` 结构）。
 - `tests/ssh/fixtures/` 中的私钥只用于公开协议测试，绝不可用于真实服务器。
-- E2E 首次运行需安装浏览器：`pnpm exec playwright install chromium`。
+- E2E 首次运行需安装浏览器：`pnpm exec playwright install chromium webkit`。
+- E2E spec 统一从 `tests/e2e/fixtures.ts` 导入 `test` / `expect`。自动 context 级基础 Mock 仅放行初始化 GET；业务接口及写操作须显式按方法 Mock，未声明请求即使被前端 catch 也会使测试失败并附脱敏路径证据。`tests/e2e-fixtures.test.ts` 防止 spec 绕过 fixture（详见 `tests/README.md`）。
+- Playwright 使用全新 `--mode e2e --strictPort` Vite（不复用普通开发服务），E2E 禁用 Worker 代理和 Service Worker；`frontend/e2e-server.ts` 对漏网 API 返回带标记的 501 JSON，而非 SPA HTML，守卫同时捕获 `route.continue()` 绕过。生产构建与正常开发代理不受影响。
 - 新增前端文案必须同时提供 zh-CN/zh-TW/en-US 词条，`i18n.test.ts` 会校验多端词条对齐。
 
 ## Git 工作流规范

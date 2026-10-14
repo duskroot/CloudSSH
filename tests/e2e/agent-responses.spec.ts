@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { mockAnonymousSession } from './helpers';
 
 async function mount(page: import('@playwright/test').Page, locale = 'zh-CN') {

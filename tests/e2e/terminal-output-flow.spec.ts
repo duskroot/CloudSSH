@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { mockAnonymousSession } from './helpers';
 
 // Exercise the real SSHTerminal onmessage + trzsz path, not just the ACK helper.
