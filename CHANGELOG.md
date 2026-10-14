@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.6] - 2026-10-14
+
+### Added
+
+- **公共 Spring 物理弹簧引擎**：新增 `frontend/src/spring.ts`，基于 Euler 数值积分（刚度、阻尼、质量）统一管理物理弹簧动画，提供 `snapTo` 与 `settled`，消除液态分段器之间的重复物理计算实现。
+- **质感设计令牌与微交互升级**：
+  - 新增全主题语义化设计令牌：`--spotlight-color`、`--spotlight-opacity`、`--edge-highlight`、`--stagger-step` 与 `--press-scale`，随 `data-ui-motion` 档位（none / reduced / full）自适应收敛。
+  - **指针聚光灯（Specular Spotlight）泛化**：从 Liquid 专属扩展至全主题卡片，通过 `requestAnimationFrame` 节流写入 CSS 变量，粗指针触屏设备自动跳过以省电。
+  - **交错入场动画与骨架屏**：服务器列表冷加载占位骨架屏（支持 `aria-busy` 与 `aria-hidden`）；非搜索态卡片交错入场；SFTP 文件列表支持中小目录（≤150 行）交错入场与大目录平滑降级；传输进度条叠加流光高光。
+  - **统一空状态与全局焦点环**：服务器列表、SFTP、命令片段统一使用主题色圆形徽章空状态；全局统一 `:focus-visible` 键盘焦点环（排除 xterm 内部辅助输入区）。
+- **移动端触摸交互与安全区升级**：
+  - **抽屉右滑返回手势**：新增 `frontend/src/drawer-swipe.ts`，SFTP、AI Agent 与命令片段三大全屏抽屉支持头部触摸右滑手势，手指跟随平移，松手根据位移与速度判定关闭或弹簧回弹；手势严格限定于头部以避开 iOS Safari 屏幕左缘系统返回手势，并让渡纵向滚动。
+  - **安全区与触控细节**：Toast 浮层使用 `max(12px/16px, env(safe-area-inset-*))` 适配刘海屏与灵动岛；全局关闭 iOS 原生点击灰色闪烁（`-webkit-tap-highlight-color: transparent`），统一由 `:active` 态提供按压缩放反馈；可滚动抽屉容器配置 `overscroll-behavior-y: contain` 阻断橡皮筋滚动穿透；粗指针设备下 SFTP 文件行高自动扩至约 36px。
+
+### Fixed
+
+- **命令安全确认与高危命令防御收敛**：将动态 Shell、脚本解释器及 `$IFS`/`${IFS}` 混淆语法纳入用户确认层（严格绑定单次随机确认 ID），保留直接高危命令阻断；等待确认期间正确遵循用户无操作空闲超时，并在确认对话框关闭或抢占时彻底清理取消监听器。
+- **已连接终端输出背压与 SSH 异常收敛**：增加终端输出 4MiB 未确认额度与 60s ACK 超时闸门；SSH 解密失败立即终止会话并清空解析缓冲区，防止异常报文堆积与无界重连。
+- **SFTP 协议边界校验与删除资源预算**：严格收敛 SFTP 入站报文与有界游标边界；为目录枚举与递归删除引入整棵树条目、内存与时间共享预算（`SFTPDeleteBudget`），防止恶意或超大目录树导致 Worker 内存耗尽。
+- **一次性分享与设备身份头净化**：收敛分享 ticket 消费后的异常终态流转（避免无效回放），在匿名与转发路径强制清除外部伪造的 `x-share-device-key` 请求头，并在 Agent 流正文缺失时使用安全的 `textContent` 文本回退。
+- **多层阴影语法丢弃 Bug 修复**：修复 `--shadow-card: none` 参与多层 `box-shadow` 组合时导致整条声明被浏览器判定为非法丢弃的缺陷，改用零透明阴影占位。
+- **服务器卡片样式特异性修复**：修复 `data-component-card` 预设特异性过高静默吞掉卡片 hover 边框与辉光的问题。
+- **移动端 AI Agent 头部与提示词渲染收敛**：
+  - 修复桌面端 X 关闭图标在移动端因选择器特异性泄漏的问题，移动端右上角仅保留「返回终端」。
+  - 优化移动端头部间距与字号，窄屏（≤520px）下模式切换按钮仅保留文字，完整呈现「AI Agent 助手」标题。
+  - 移动端快捷提示词方块由横向滚动改为自动换行铺满，消除水平裁切问题。
+
 ## [2.6.5] - 2026-10-13
 
 ### Fixed

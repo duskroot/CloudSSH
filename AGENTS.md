@@ -106,6 +106,8 @@ frontend/
 │   ├── theme.ts           # Theme V4 内置主题、UI CSS 变量、外观预设、背景/效果合成与版式缩放
 │   ├── theme-segmented.ts # Apple macOS 26 / iOS 26 液态分段主题切换器（双边异步物理弹簧滑块）
 │   ├── drawer-segmented.ts # Apple macOS 26 液态抽屉分段切换器（SFTP/自定义命令/Agent 药丸胶囊与双边异步物理弹簧滑块）
+│   ├── spring.ts          # 一维物理弹簧引擎（刚度/阻尼/质量 + rAF 积分，供液态分段与微交互复用）
+│   ├── drawer-swipe.ts    # 移动端抽屉面板触摸右滑关闭（头部边界、防横纵竞争、速度/位移判定与回弹）
 │   ├── auth-challenge-dialog.ts # RFC 4256 multi-round authentication prompt UI
 │   ├── mobile-terminal.ts # Mobile viewport, shortcut toolbar, clipboard and landscape controller
 │   ├── mobile-shortcuts-manager.ts # 移动端快捷键管理器与可视化配置弹窗（云端同步 + 本地镜像双写）
@@ -403,6 +405,8 @@ release: 发布 vX.Y.Z <主题>版本（如 `release: 发布 v1.10.2 工作流�
 41. **SFTP 上传续传、校验与目录删除** - 上传按远端已写入大小续传，失败或取消时保留部分文件；浏览器通过 `sha256-stream.ts` 流式计算完整文件（含续传前缀）哈希，不得恢复整文件内存读取。上传完成后在远端校验工具可用时比对 SHA-256，不可用时不因校验本身阻止成功。直连/隧道窗口与 ACK 必须使用共享策略（见 #38），4 秒 ACK 等待恢复仍受最大窗口限制，不得无限放开。非空目录删除先尝试 `rmdir`，通用 `Failure` 才触发递归遍历；它不是 `ENOTEMPTY` 的确切证明，权限等失败仍应报告。目录句柄必须关闭，跳过 `.` / `..`，拒绝带路径分隔符/NUL 的子条目，符号链接按文件删除而非递归进入。`SFTPDeleteBudget` 整棵树共享上限：50,000 条目、16MiB 累计条目估算内存、100,000 次请求（含预留 CLOSE）、深度 64、5 分钟；每目录最多 10,000 条目与 8MiB 估算内存，READDIR 最多 1024 次、连续 3 次空批次即失败。截断/预算耗尽必须明确报错，不对截断目录做部分删除；此前已完成的兄弟目录/文件删除不会回滚。deadline 传入 OPENDIR/READDIR/REMOVE/RMDIR 请求等待，超时后最多额外 5s 做一次句柄清理；清理失败仍不能保证远端句柄成功释放。UI 列表保留 2000 条上限，计数恰好到上限时再读 EOF 区分完整与截断。
 
 42. **SSH/SFTP 入站解析收敛** - SSH `nextPacket()` 的 `null` 仅表示报文未收齐；GCM/CTR 解密失败必须抛错，由会话层关闭 TCP/WebSocket 并清空解析缓冲，不得在认证失败后继续堆积或分发剩余报文；当前前端将 `packet_error` 视为不可重试错误，避免畸形服务器导致无限自动重连。SFTP v3 使用 `SFTPReader` 在读整数/切片/推进 offset 前校验边界；单报文体 ≤1MiB、接收缓冲 ≤2MiB、NAME 单包 ≤10,000 条且受剩余字节约束、filename/longname 各 ≤16KiB、HANDLE ≤256 字节。STATUS 的消息与语言字段必须完整，扩展属性按 v3 标志有界读取，不支持的版本/标志及不匹配请求的响应失败关闭。协议错误拒绝所有待决请求、清理其计时器/缓冲，并经会话层终止连接；目录枚举另外受 #41 的计数、估算内存和时间预算约束。
+
+43. **前端微交互、弹簧引擎与移动端手势边界** - 统一 Spring 物理弹簧引擎（`frontend/src/spring.ts`）通过 Euler 数值积分求解刚度与阻尼，提供 `snapTo` 与 `settled`，供主题/抽屉液态分段器与各类微交互共享，严禁私自重复实现；抽屉面板移动端触摸右滑关闭（`frontend/src/drawer-swipe.ts`）严格以 `headerSelector` 限定在头部，规避 iOS Safari 屏幕左缘系统返回手势冲突，且与列表纵向滚动明确隔离（纵向位移判定后即刻交还原生滚动），关闭时统一路由原面板的 `hide()`/`close()` 语义，保持在途传输中断（AGENTS.md #37）与清理逻辑；主视图切换过渡（`#terminal-section`）必须保持仅纯透明度淡入，严禁添加带 `transform` 的动画以防破坏其内部 `position: fixed` 抽屉面板的包含块（containing block）基准；所有微动效全量接入 `@media (prefers-reduced-motion: reduce)` 与 `data-ui-motion` 档位收敛；卡片指针聚光灯通过 rAF 节流直接写入 CSS 变量并在粗指针设备上跳过注册；骨架屏必须携带 `aria-busy` 与 `aria-hidden` 无障碍属性；SFTP 列表仅在行数 ≤150 时启用交错入场动画以防大目录并发卡顿。
 
 ## Deployment Notes
 
