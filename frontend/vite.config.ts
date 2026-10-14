@@ -14,6 +14,16 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8787',
         ws: true,
+        configure: (proxy) => {
+          proxy.on('error', (_err, _req, res) => {
+            // E2E 测试或独立前端调试未启动 8787 后端时平稳降级，避免 AggregateError [ECONNREFUSED] 刷屏
+            const socketOrRes = res as any;
+            if (socketOrRes && !socketOrRes.headersSent && typeof socketOrRes.writeHead === 'function') {
+              socketOrRes.writeHead(502, { 'Content-Type': 'application/json' });
+              socketOrRes.end(JSON.stringify({ error: 'Backend unreachable (localhost:8787)' }));
+            }
+          });
+        },
       },
     },
   },
