@@ -228,9 +228,14 @@ Fork 仓库可以通过内置的 `Sync upstream` GitHub Actions 工作流，定�
 > **配置建议与补充说明**：
 >
 > 1. **Secret 安全存储**：在 Cloudflare Dashboard 的 _Settings → Variables and Secrets_ 中，强烈建议将所有包含密码、Secret、Key 等敏感凭据的变量统一选择为 **Secret** 类型。Secrets 存储在 Cloudflare 独立加密存储层中，重新构建和部署 Worker 时不会被代码覆盖。
-> 2. **预留变量说明**：代码中保留了 `MAX_CONNECTIONS` 环境变量接口定义，当前版本暂未读取生效，请勿依赖。
+> 2. **凭据存储边界**：已保存的 SSH 凭据、AI API key、隧道 Service Token 与敏感服务器记忆使用 AES-GCM 存储，但加密根密钥位于同一 UserDBDO SQLite 的 `system_config.encryption_secret`。这仅避免凭据列直接存明文，不抵御含密钥的整库泄露、数据库读权限或 Worker 代码执行权限失陷；并非独立 Secret/KMS 保护。
+> 3. **预留变量说明**：代码中保留了 `MAX_CONNECTIONS` 环境变量接口定义，当前版本暂未读取生效，请勿依赖。
 >
-> 3. **wrangler 部署的变量权威性**：经 Git 集成/CLI（wrangler）部署的实例以 `wrangler.toml` 为配置权威——Dashboard 中的同名普通变量会在部署时被覆盖，**Secret 类型不受影响**。`IDLE_TIMEOUT` / `REQUIRE_GITHUB_AUTH` / `ENABLE_SSH_SHARING` / `STRICT_HOST_KEY_VERIFY` 已随 `[vars]` 默认下发，如需自定义请直接修改 `wrangler.toml`；`TURNSTILE` 与 `ADMIN_PASSWORD_HASH` 等按需变量建议在 Dashboard 中以 Secret 类型维护。
+> 4. **终端输出积压保护**：stdout 与 stderr 共享 4MiB 未接收确认额度；超限或有积压且 60s 无有效客户端确认进展时正常关闭会话，禁止自动重连。它不是累计输出上限，也不限制畅通链路持续输出的费用；确认仅代表 WebSocket 已接收，不代表终端渲染或文件落盘完成。升级后请刷新已有页面，旧前端不发送确认也会触发保护。Agent 命令确认也要求回传新的一次性确认 ID，旧页面无法批准；等待确认期间仍受 `IDLE_TIMEOUT` 约束（`0` 明确禁用）。
+>
+> 5. **SFTP 目录删除预算**：每目录最多 10,000 条及 8MiB 条目估算内存；整棵树共享 50,000 条、16MiB 累计条目估算内存、100,000 次请求、深度 64 与 5 分钟预算。截断或预算耗尽会明确失败，不对截断目录继续部分删除；此前已完成的删除不会回滚。连续空目录批次和异常报文也会失败收敛，句柄清理最多额外尝试 5 秒。
+>
+> 6. **wrangler 部署的变量权威性**：经 Git 集成/CLI（wrangler）部署的实例以 `wrangler.toml` 为配置权威——Dashboard 中的同名普通变量会在部署时被覆盖，**Secret 类型不受影响**。`IDLE_TIMEOUT` / `REQUIRE_GITHUB_AUTH` / `ENABLE_SSH_SHARING` / `STRICT_HOST_KEY_VERIFY` 已随 `[vars]` 默认下发，如需自定义请直接修改 `wrangler.toml`；`TURNSTILE` 与 `ADMIN_PASSWORD_HASH` 等按需变量建议在 Dashboard 中以 Secret 类型维护。
 
 #### 可选：启用单管理员密码登录（替代 GitHub OAuth）
 
@@ -274,10 +279,10 @@ Fork 仓库可以通过内置的 `Sync upstream` GitHub Actions 工作流，定�
    - `BASE_URL` = `https://your-domain.com`（你的部署域名）
    - `GITHUB_CLIENT_SECRET` = 你的 Client Secret
 
-   还可以按部署用途添加以下两个独立的可选配置：
+   还可以按部署用途设置以下三个独立的可选配置：
    - `GITHUB_ALLOWED_USER_IDS`：允许登录的 GitHub **数字用户 ID**，多个 ID 使用英文逗号分隔，例如 `83105156,6236783`。未配置时不限制 GitHub 账号；配置为空或包含非正整数时采用 fail-closed，拒绝所有 GitHub 登录。
    - `REQUIRE_GITHUB_AUTH`：设置为 `true` 时禁用匿名 SSH，所有 SSH WebSocket 都必须带有有效 GitHub session；未配置或设置为 `false` 时保留匿名连接。
-   - `ENABLE_SSH_SHARING`：设置为 `true` 时允许登录用户为已保存服务器创建一次性分享链接；默认关闭。启用即表示管理员明确允许持有分享凭证的接收者在不登录 GitHub 的情况下建立受审计 SSH 会话。
+   - `ENABLE_SSH_SHARING`：设置为 `true` 时允许登录用户为已保存服务器创建一次性分享链接。Git 集成/CLI 部署的 `wrangler.toml` 在生产与 test 环境均默认下发 `true`；关闭请改为 `false`。运行时变量未配置时关闭（如未自行配置变量的 Dashboard 手动上传部署）。启用表示允许持有分享凭证的接收者无需登录即可建立受审计 SSH 会话。
 
    **获取 GitHub 数字用户 ID**：
    - 浏览器访问 `https://api.github.com/users/octocat`（将 `octocat` 替换为实际用户名），在返回的 JSON 中读取 `id` 字段。例如响应中的 `"id": 583231` 表示数字用户 ID 为 `583231`。

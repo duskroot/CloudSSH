@@ -227,9 +227,14 @@ All feature flags and security controls are managed through Worker environment v
 
 > **Configuration Recommendations & Notes**:
 > 1. **Encrypted Secret Storage**: In the Cloudflare Dashboard under *Settings → Variables and Secrets*, it is strongly recommended to store all sensitive variables containing passwords, Secrets, or Keys as **Secret** type. Secrets are stored in Cloudflare's dedicated encrypted storage layer and will not be overwritten when rebuilding or redeploying code.
-> 2. **Reserved Variables**: `MAX_CONNECTIONS` is declared as an interface placeholder for future connection budgeting; it is currently unread by runtime code, so do not rely on it.
+> 2. **Credential storage boundary**: Saved SSH credentials, AI API keys, tunnel Service Tokens, and sensitive server memory use AES-GCM storage, but the root encryption secret resides in the same UserDBDO SQLite database (`system_config.encryption_secret`). This avoids plaintext credential columns, but does not protect against a full database leak including the key, compromised database read access, or Worker code execution. It is not independent Secret/KMS protection.
+> 3. **Reserved Variables**: `MAX_CONNECTIONS` is declared as an interface placeholder for future connection budgeting; it is currently unread by runtime code, so do not rely on it.
 >
-> 3. **Wrangler deploy variable authority**: Instances deployed via Git integration / CLI (wrangler) treat `wrangler.toml` as the configuration source of truth — same-name plain-text variables in the Dashboard are overwritten on deploy, while **Secret-type values are unaffected**. `IDLE_TIMEOUT` / `REQUIRE_GITHUB_AUTH` / `ENABLE_SSH_SHARING` / `STRICT_HOST_KEY_VERIFY` ship via `[vars]` by default; customize them directly in `wrangler.toml`. Opt-in variables such as `TURNSTILE` and `ADMIN_PASSWORD_HASH` are best maintained as Dashboard Secrets.
+> 4. **Terminal output backlog protection**: stdout and stderr share a 4MiB unacknowledged-receipt budget. Overflow, or 60s without valid acknowledgement progress while output is pending, closes the session normally without automatic reconnect. This is not a lifetime output limit or a cost cap for continuously flowing output; receipt ACKs do not mean terminal rendering or file writes have completed. Refresh existing pages after upgrading: older frontends do not send ACKs and will also trigger the guard. Agent approvals also require the new one-shot confirmation ID; older pages cannot approve. Waiting for approval remains subject to `IDLE_TIMEOUT` (`0` explicitly disables it).
+>
+> 5. **SFTP recursive deletion budgets**: Each directory is capped at 10,000 entries and 8MiB of estimated entry memory. The whole tree shares limits of 50,000 entries, 16MiB cumulative estimated entry memory, 100,000 requests, depth 64, and five minutes. Truncation or exhausted budgets fail explicitly rather than partially deleting the truncated directory; earlier completed deletions are not rolled back. Repeated empty batches and malformed packets also fail promptly, with at most five extra seconds for a handle-cleanup attempt.
+>
+> 6. **Wrangler deploy variable authority**: Instances deployed via Git integration / CLI (wrangler) treat `wrangler.toml` as the configuration source of truth — same-name plain-text variables in the Dashboard are overwritten on deploy, while **Secret-type values are unaffected**. `IDLE_TIMEOUT` / `REQUIRE_GITHUB_AUTH` / `ENABLE_SSH_SHARING` / `STRICT_HOST_KEY_VERIFY` ship via `[vars]` by default; customize them directly in `wrangler.toml`. Opt-in variables such as `TURNSTILE` and `ADMIN_PASSWORD_HASH` are best maintained as Dashboard Secrets.
 
 #### Optional: Enable Single-Admin Password Sign-In (Alternative to GitHub OAuth)
 
@@ -273,11 +278,11 @@ With GitHub OAuth enabled, users can log in with their GitHub account and save/m
    - `BASE_URL` = `https://your-domain.com` (your deployed domain)
    - `GITHUB_CLIENT_SECRET` = your Client Secret
 
-   The following two independent settings are optional:
+   The following three independent settings are optional:
 
    - `GITHUB_ALLOWED_USER_IDS`: Comma-separated GitHub **numeric user IDs** allowed to sign in, for example `83105156,6236783`. When omitted, every GitHub account may sign in. An empty or malformed configured value fails closed and denies every GitHub sign-in.
    - `REQUIRE_GITHUB_AUTH`: Set to `true` to disable anonymous SSH and require a valid GitHub session for every SSH WebSocket. When omitted or set to `false`, anonymous connections remain available.
-   - `ENABLE_SSH_SHARING`: Set to `true` to let signed-in users create one-time links for saved servers. It is disabled by default. Enabling it explicitly permits a bearer of the share capability to open an audited SSH session without signing in to GitHub.
+   - `ENABLE_SSH_SHARING`: Set to `true` to let signed-in users create one-time links for saved servers. Git-integrated / CLI deployments ship `true` via `wrangler.toml` for both production and test; set it to `false` to opt out. The runtime disables sharing when the variable is absent (e.g. manual Dashboard uploads without this variable). Enabling it permits a bearer of the share capability to open an audited SSH session without signing in.
 
    **Find a GitHub numeric user ID**:
 
