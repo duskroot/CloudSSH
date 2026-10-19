@@ -15,7 +15,7 @@ import { isDetectedOS } from './os-detect';
 import { deserializeServerRow, serializeServerTags } from './server-tags';
 import { isValidTunnelHostname } from './tunnel-stream';
 
-const AUTH_METHODS = new Set(['password', 'publickey']);
+const AUTH_METHODS = new Set(['password', 'publickey', 'none']);
 const MAX_JUMP_HOSTS = 3;
 
 // 单管理员密码登录节流（DO 持久化，跨 isolate 权威；指数退避封顶 15 分钟）
@@ -894,7 +894,11 @@ export class UserDBDO {
     if (!AUTH_METHODS.has(body.auth_method)) {
       return Response.json({ error: '不支持的认证方式' }, { status: 400 });
     }
-    if (typeof body.credential !== 'string' || body.credential.length === 0) {
+    if (
+      body.auth_method !== 'none' &&
+      (typeof body.credential !== 'string' ||
+        (body.auth_method === 'publickey' && body.credential.length === 0))
+    ) {
       return Response.json({ error: '认证凭据不能为空' }, { status: 400 });
     }
     const jumpServerId = body.jump_server_id ?? null;
@@ -952,8 +956,9 @@ export class UserDBDO {
     // 下游节点或隧道连接不需要推断区域。
     const region = jumpServerId === null ? requestedRegion : null;
 
-    // 加密凭据
-    const encrypted = await this.encryptCredential(body.credential, body.user_id);
+    // none 不保存密码/私钥；沿用现有 NOT NULL 列，无需数据库迁移。
+    const encrypted =
+      body.auth_method === 'none' ? '' : await this.encryptCredential(body.credential, body.user_id);
 
     // Auto 模式保存时一次性推断 locationHint，结果持久化入 inferred_hint 列
     // 手动区域已经能够直接决定调度，无需向 IPinfo 发送主机信息
@@ -1053,13 +1058,18 @@ export class UserDBDO {
     if (body.auth_method !== undefined && !AUTH_METHODS.has(body.auth_method)) {
       return Response.json({ error: '不支持的认证方式' }, { status: 400 });
     }
-    const hasNewCredential = typeof body.credential === 'string' && body.credential.length > 0;
-    if (body.credential !== undefined && !hasNewCredential) {
+    const nextAuthMethod = body.auth_method ?? current.auth_method;
+    // Omitted means keep the stored credential; '' is an explicit empty password.
+    const hasNewCredential =
+      typeof body.credential === 'string' &&
+      (nextAuthMethod === 'password' || body.credential.length > 0);
+    if (nextAuthMethod !== 'none' && body.credential !== undefined && !hasNewCredential) {
       return Response.json({ error: '认证凭据不能为空' }, { status: 400 });
     }
     if (
       body.auth_method !== undefined &&
       body.auth_method !== current.auth_method &&
+      nextAuthMethod !== 'none' &&
       !hasNewCredential
     ) {
       return Response.json({ error: '切换认证方式时必须同时提供对应凭据' }, { status: 400 });
@@ -1153,7 +1163,11 @@ export class UserDBDO {
       updates.push('username = ?');
       values.push(body.username);
     }
-    if (hasNewCredential) {
+    if (nextAuthMethod === 'none') {
+      // 切换到 none 时删除旧凭据，不能在以后切回密码/私钥时复用。
+      updates.push('credential = ?');
+      values.push('');
+    } else if (hasNewCredential) {
       const encrypted = await this.encryptCredential(body.credential!, body.user_id);
       updates.push('credential = ?');
       values.push(encrypted);
@@ -1833,7 +1847,10 @@ export class UserDBDO {
         const identity =
           index === 0 ? server.host : `jump:${pathSegments.join('>')}|${server.host}`;
         pathSegments.push(`${server.id}@${server.host}:${server.port}`);
-        const credential = await this.decryptCredential(server.credential, body.user_id);
+        const credential =
+          server.auth_method === 'none'
+            ? ''
+            : await this.decryptCredential(server.credential, body.user_id);
         const khRows = this.query<FingerprintRow>(
           'SELECT fingerprint FROM known_hosts WHERE user_id = ? AND host = ? AND port = ?',
           body.user_id,
@@ -1870,7 +1887,10 @@ export class UserDBDO {
       port: node.server.port,
       username: node.server.username,
       password: node.server.auth_method === 'password' ? node.credential : '',
-      authMethod: node.server.auth_method === 'publickey' ? 'publickey' : 'password',
+      authMethod:
+        node.server.auth_method === 'none'
+          ? 'none'
+          : node.server.auth_method === 'publickey' ? 'publickey' : 'password',
       privateKey: node.server.auth_method === 'publickey' ? node.credential : '',
       expectedFingerprint: node.expectedFingerprint,
       knownHostIdentity: node.identity,
@@ -1889,7 +1909,10 @@ export class UserDBDO {
       port: target.port,
       username: target.username,
       password: target.auth_method === 'password' ? targetNode.credential : '',
-      authMethod: target.auth_method === 'publickey' ? 'publickey' : 'password',
+      authMethod:
+        target.auth_method === 'none'
+          ? 'none'
+          : target.auth_method === 'publickey' ? 'publickey' : 'password',
       privateKey: target.auth_method === 'publickey' ? targetNode.credential : '',
       expectedFingerprint: targetNode.expectedFingerprint,
       knownHostIdentity: targetNode.identity,

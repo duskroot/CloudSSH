@@ -18,7 +18,7 @@ CloudSSH is a serverless Web SSH terminal built on Cloudflare Workers. Users con
 
 - **Frontend** (`frontend/`): TypeScript + Vite + xterm.js + Tailwind CSS（通过 PostCSS 本地构建）
 - **Backend** (`src/`): Cloudflare Workers + Durable Objects
-- **SSH Protocol**: Pure TypeScript implementation in `src/ssh/` (no external SSH library)
+- **SSH Protocol**: Pure TypeScript implementation in `src/ssh/` (no external SSH library). Explicit `authMethod/auth_method: 'none'` supports RFC 4252 §5.2 username-only login; it never falls back to password/publickey/keyboard-interactive after rejection (normal close 1000). Password/key remain the defaults: password accepts an explicit empty string (never test it by truthiness), while publickey requires a nonempty key. Switching saved servers to none clears old credentials; switching back requires an explicit matching credential (password may be ''). PUT omitting credential preserves the old value, while an explicit '' sets an empty password. The frontend preserves blank-on-edit semantics unless the user selects “Set an empty password”; new/password-mode-switch forms submit '' when blank. Keyboard-interactive accepts empty responses [''] and zero-prompt responses [] only after user submission; retain challenge ID/socket binding and the existing method fallback policy. None uses the existing auth_method/credential columns without migrations; jump/share/reconnect must preserve this mode. Usernames may be bearer-like secrets: never add them to logs; the UI warns that local history retains them.
 - **SFTP Protocol**: SFTP v3 subsystem implementation in `src/ssh/sftp.ts` for file management
 - **Build Process**: `scripts/build-html.js` builds frontend and inlines it into `src/worker/html.ts`
 

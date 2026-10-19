@@ -129,7 +129,14 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   'auth.validationHostUser': 'Enter a host address and username.',
   'auth.validationPort': 'Port must be an integer from 1 to 65535.',
   'auth.validationPassword': 'Enter a password.',
+  'auth.passwordHint':
+    'Leave blank to send an empty password. Interactive authentication prompts also accept an empty response with Enter.',
+  'server.passwordEditHint':
+    'Leave blank to keep the saved password. To clear it, select “Set an empty password”.',
+  'server.useEmptyPassword': 'Set an empty password',
   'auth.validationPrivateKey': 'Enter a private key.',
+  'auth.none': 'None',
+  'auth.noneHint': 'Only for servers accepting SSH none authentication. No password or private key is sent. Your username may grant access: keep it secret. Connection history is stored on this device.',
   'auth.readKeyFailed': 'Could not read the private key file.',
   'auth.readKeyTitle': 'Could not read file',
   'auth.removeHistory': 'Remove from history',
@@ -362,6 +369,8 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   'terminal.status.authSuccess': 'Authentication successful',
   'terminal.status.authFailed':
     'Authentication failed: the username, credential, or interactive response was rejected',
+  'terminal.status.authNoneRejected':
+    'The server rejected none authentication. Select an authentication method supported by the server.',
   'terminal.status.shellReady': 'Shell ready',
   'terminal.status.sessionEnded': 'Session ended',
   'terminal.status.remoteClosed': 'Remote host closed the connection',
