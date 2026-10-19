@@ -86,6 +86,8 @@ export interface ResponseUsage {
 }
 
 export interface ModelResponse {
+  /** Locally generated correlation ID, never an upstream ID or header. */
+  requestId?: string;
   id: string;
   text: string;
   calls: ResponseFunctionCall[];

@@ -366,8 +366,10 @@ export class ResponsesClient {
         const mime = response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
         stage = request.stream && mime !== 'application/json' && !mime?.endsWith('+json') ? 'stream' : 'parse';
         // A gateway may return a complete JSON response despite stream:true. Same completion checks apply.
-        if (stage === 'stream') return await this.readStream(response, request, signal, onText);
-        return parseResponse(await readJsonBody(response, signal, MAX_RESPONSE_CHARS), request);
+        const result = stage === 'stream'
+          ? await this.readStream(response, request, signal, onText)
+          : parseResponse(await readJsonBody(response, signal, MAX_RESPONSE_CHARS), request);
+        return { ...result, requestId };
       }
     } catch (error) {
       if (signal.aborted) throw signal.reason;

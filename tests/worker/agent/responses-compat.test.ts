@@ -185,7 +185,7 @@ describe('Auxiliary memory compatibility', () => {
     const manager = new AgentMemoryManager(provider, () => 1, frame => frames.push(frame));
     const output = valid ? JSON.stringify({ workLog: { mode: 'create', title: 'Inspection', summary: 'Inspected Linux' }, knowledge: [] }) : '{}';
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(unsupported('text.format'))
-      .mockResolvedValueOnce(new Response(JSON.stringify(responseObject('resp_memory', output))));
+      .mockImplementation(async () => new Response(JSON.stringify(responseObject('resp_memory', output))));
     await manager.enqueue({ records: [{ role: 'user', content: 'Inspect Linux' }, { role: 'assistant', content: 'Inspected Linux' }],
       memory, goal: 'Inspect Linux', config: { ...aiConfig, max_output_tokens: 1024 }, locale: 'en-US', timezone: 'UTC',
       interrupted: false, iteration: 1, epoch: 1, sessionId: 'session-test' });
@@ -195,7 +195,10 @@ describe('Auxiliary memory compatibility', () => {
       expect(frames).toContainEqual({ subType: 'memory_updated' });
     } else {
       expect(provider.saveBatchMemory).not.toHaveBeenCalled();
-      expect(frames).toContainEqual(expect.objectContaining({ code: 'memory_failed', errorCode: 'responses_schema', diagnostics: { purpose: 'memory' } }));
+      expect(fetch).toHaveBeenCalledTimes(3); // capability correction + two completed generations
+      expect(JSON.parse(fetch.mock.calls[2][1]!.body as string)).not.toHaveProperty('text');
+      expect(frames).toContainEqual(expect.objectContaining({ code: 'memory_failed', errorCode: 'responses_schema',
+        diagnostics: { purpose: 'memory', stage: 'parse', parameter: 'text.format', requestId: expect.any(String) } }));
     }
   });
 });
