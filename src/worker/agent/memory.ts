@@ -97,7 +97,10 @@ export class AgentMemoryManager {
       try { await this.distill(job, this.controller.signal); }
       catch (error) {
         if (job.epoch === this.epoch()) this.emit({ subType: 'memory_status',
-          code: error instanceof ResponsesError && error.status === 409 ? 'memory_conflict' : 'memory_failed' });
+          code: error instanceof ResponsesError && error.status === 409 ? 'memory_conflict' : 'memory_failed',
+          errorCode: error instanceof ResponsesError ? error.code : 'responses_failed',
+          status: error instanceof ResponsesError ? error.status : undefined,
+          diagnostics: { purpose: 'memory', ...(error instanceof ResponsesError ? error.diagnostics : {}) } });
       } finally { clearTimeout(timer); this.controller = null; }
     }
   }
@@ -129,7 +132,7 @@ export class AgentMemoryManager {
       existingWorkLogs: job.memory.workLogs.slice(0, 2), known,
       time: new Date().toISOString(), timezone: job.timezone, locale: job.locale });
     if (bytes(input) > 48 * 1024) throw new ResponsesError('responses_budget');
-    const result = await new ResponsesClient(job.config).create({ stream: false,
+    const result = await new ResponsesClient(job.config).create({ purpose: 'memory', stream: false,
       instructions: MEMORY_DISTILLATION_PROMPT + '\nPreserve actual status fields. Existing user-authored facts are protected. Never infer credentials from tool output. Prefer null workLog for trivial chat.',
       input: [observation('memory evidence', input)], max_output_tokens: 4096,
       text: { format: MEMORY_FORMAT } }, signal);

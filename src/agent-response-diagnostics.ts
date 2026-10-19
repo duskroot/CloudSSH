@@ -1,0 +1,47 @@
+// Never pass provider messages/bodies through this boundary: they may echo credentials or input.
+export const RESPONSE_PURPOSES = ['main', 'checkpoint', 'memory'] as const;
+export const RESPONSE_STAGES = ['http', 'stream', 'parse'] as const;
+export const RESPONSE_PARAMETERS = [
+  'model', 'input', 'max_output_tokens', 'prompt_cache_key', 'truncation',
+  'parallel_tool_calls', 'tool_choice', 'tools', 'tools.strict', 'text.format', 'include', 'store',
+] as const;
+export const PROVIDER_ERROR_CODES = [
+  'unsupported_parameter', 'unsupported_value', 'unsupported_feature', 'unsupported_model',
+  'invalid_request_error', 'invalid_parameter', 'invalid_value', 'invalid_json_schema',
+  'context_length_exceeded', 'max_tokens_exceeded', 'model_not_found', 'rate_limit_exceeded',
+  'insufficient_quota', 'authentication_error', 'invalid_api_key', 'permission_denied',
+  'server_error', 'internal_server_error', 'overloaded_error', 'content_policy_violation',
+] as const;
+
+export interface ResponseDiagnostics {
+  purpose?: typeof RESPONSE_PURPOSES[number];
+  stage?: typeof RESPONSE_STAGES[number];
+  parameter?: typeof RESPONSE_PARAMETERS[number];
+  providerCode?: typeof PROVIDER_ERROR_CODES[number];
+  requestId?: string;
+}
+
+function member<T extends string>(values: readonly T[], value: unknown): T | undefined {
+  return values.find(item => item === value);
+}
+
+/** Also validate on the browser side; WebSocket data is not a license to render arbitrary metadata. */
+export function normalizeResponseDiagnostics(value: unknown): ResponseDiagnostics {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const raw = value as Record<string, unknown>;
+  const result: ResponseDiagnostics = {};
+  const purpose = member(RESPONSE_PURPOSES, raw.purpose);
+  const stage = member(RESPONSE_STAGES, raw.stage);
+  const parameter = member(RESPONSE_PARAMETERS, raw.parameter);
+  const providerCode = member(PROVIDER_ERROR_CODES, raw.providerCode);
+  if (purpose) result.purpose = purpose;
+  if (stage) result.stage = stage;
+  if (parameter) result.parameter = parameter;
+  if (providerCode) result.providerCode = providerCode;
+  // This is OUR generated correlation UUID, not an untrusted upstream header or echoed secret.
+  if (typeof raw.requestId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.requestId)) {
+    result.requestId = raw.requestId;
+  }
+  return result;
+}

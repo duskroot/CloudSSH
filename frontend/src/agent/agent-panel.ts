@@ -566,7 +566,7 @@ export class AgentPanel {
         }
         break;
       case 'error':
-        this.showError(msg.code ? responseErrorMessage(msg.code, msg.status) : msg.message);
+        this.showError(msg.code ? responseErrorMessage(msg.code, msg.status, msg.diagnostics) : msg.message);
         // Pre-run SSH/auth errors have no run_end; protocol errors do.
         if (msg.runId == null) {
           this.isAgentRunning = false;
@@ -581,6 +581,13 @@ export class AgentPanel {
         this.activeRequestId = null;
         this.isAgentRunning = false;
         this.updateInputState();
+        break;
+      case 'memory_status':
+        if (msg.code === 'memory_failed') {
+          // Auxiliary failures must not remove a newer task's streaming message.
+          notify(t('agent.memoryFailure') + '\n' + responseErrorMessage(msg.errorCode, msg.status, msg.diagnostics),
+            { variant: 'warning' });
+        }
         break;
       case 'memory_updated':
         if (!this.isAgentRunning) this.clearSessionDraft();
