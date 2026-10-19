@@ -13,7 +13,7 @@ export class ResponsesError extends Error {
   }
 }
 
-interface ResponseRequest {
+export interface ResponseRequest {
   input: ResponseInput[];
   instructions: string;
   stream: boolean;
@@ -21,6 +21,7 @@ interface ResponseRequest {
   max_output_tokens: number;
   prompt_cache_key?: string;
   text?: { format: { type: 'json_schema'; name: string; strict: true; schema: Record<string, unknown> } };
+  reasoning?: { effort: 'low' };
   allowIncomplete?: boolean;
   purpose?: 'main' | 'checkpoint' | 'memory';
 }
@@ -51,9 +52,8 @@ function nativeId(item: Record<string, unknown>): { id?: string } {
 function parseResponse(value: unknown, request: ResponseRequest): ModelResponse {
   const response = object(value);
   const isIncomplete = response.status === 'incomplete';
-  if (response.status !== 'completed' && (!isIncomplete || !request.allowIncomplete)) {
-    throw new ResponsesError(isIncomplete ? 'responses_incomplete' : 'responses_failed', undefined,
-      providerError(response).diagnostics);
+  if (response.status !== 'completed' && !isIncomplete) {
+    throw new ResponsesError('responses_failed', undefined, providerError(response).diagnostics);
   }
   if (typeof response.id !== 'string' || !response.id || !Array.isArray(response.output)) {
     throw new ResponsesError('responses_invalid');
@@ -61,16 +61,23 @@ function parseResponse(value: unknown, request: ResponseRequest): ModelResponse 
   // Missing echoes are allowed; explicitly contradicting store:false is not.
   if (response.store === true) throw new ResponsesError('responses_storage');
 
-  let incompleteReason: string | undefined;
+  let incompleteReason: 'max_output_tokens' | 'content_filter' | 'unknown' | undefined;
+  let incompleteDiagnostics: ResponseDiagnostics = {};
   if (isIncomplete) {
-    if (response.incomplete_details && typeof response.incomplete_details === 'object') {
-      const details = response.incomplete_details as Record<string, unknown>;
-      if (typeof details.reason === 'string') {
-        incompleteReason = details.reason;
-        if (incompleteReason === 'content_filter') {
-          throw new ResponsesError('responses_incomplete');
-        }
-      }
+    const details = response.incomplete_details as Record<string, unknown> | null;
+    incompleteReason = details?.reason === 'max_output_tokens' || details?.reason === 'content_filter'
+      ? details.reason : 'unknown';
+    const usage = response.usage as Record<string, unknown> | null;
+    const outputDetails = usage?.output_tokens_details as Record<string, unknown> | null;
+    incompleteDiagnostics = normalizeResponseDiagnostics({
+      ...providerError(response).diagnostics, incompleteReason,
+      parameter: incompleteReason === 'max_output_tokens' ? 'max_output_tokens' : undefined,
+      requestedOutputTokens: request.max_output_tokens,
+      outputTokens: usage?.output_tokens, reasoningTokens: outputDetails?.reasoning_tokens,
+    });
+    // Only an explicit token-limit stop can be recovered. Never resume filtering/unknown failures.
+    if (!request.allowIncomplete || incompleteReason !== 'max_output_tokens') {
+      throw new ResponsesError('responses_incomplete', undefined, incompleteDiagnostics);
     }
   }
 
@@ -174,7 +181,7 @@ function parseResponse(value: unknown, request: ResponseRequest): ModelResponse 
 
   if (isIncomplete && !text.trim() && !(incompleteReason === 'max_output_tokens' &&
     output.some(item => item.type === 'reasoning' && item.encrypted_content))) {
-    throw new ResponsesError('responses_incomplete');
+    throw new ResponsesError('responses_incomplete', undefined, incompleteDiagnostics);
   }
 
   if (calls.length && (!request.tools || refused)) throw new ResponsesError('responses_invalid');
@@ -290,6 +297,8 @@ export class ResponsesClient {
           JSON.stringify(request.text.format.schema);
       } else payload.text = request.text;
     }
+    if (request.reasoning?.effort === 'low' && !this.unsupported.has('reasoning') &&
+      !this.unsupported.has('reasoning.effort')) payload.reasoning = { effort: 'low' };
     if (request.tools) {
       payload.tools = request.tools.map(tool => ({ ...tool,
         strict: this.unsupported.has('tools.strict') ? false : tool.strict }));
@@ -304,9 +313,19 @@ export class ResponsesClient {
     if (this.unsupported.has(parameter)) return false;
     if (parameter === 'tools.strict') return Boolean(payload.tools);
     if (parameter === 'text.format') return Boolean(payload.text);
+    if (parameter === 'reasoning' || parameter === 'reasoning.effort') return Boolean(payload.reasoning);
     return ['prompt_cache_key', 'truncation', 'parallel_tool_calls', 'tool_choice', 'include'].includes(parameter) &&
       Object.hasOwn(payload, parameter);
   }
+
+  private withinBudget(payload: Record<string, unknown>): boolean {
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+    return bodyBytes <= 2 * 1024 * 1024 &&
+      bodyBytes + Number(payload.max_output_tokens) + 512 < this.budgets.context_window;
+  }
+
+  /** Same serialized-body budget used by create(), for atomic checkpoint preflight. */
+  canFit(request: ResponseRequest): boolean { return this.withinBudget(this.payload(request)); }
 
   async create(request: ResponseRequest, signal: AbortSignal, onText?: (delta: string) => void): Promise<ModelResponse> {
     let requestId = crypto.randomUUID();
@@ -323,10 +342,8 @@ export class ResponsesClient {
         stage = 'http';
         const payload = this.payload(request);
         const body = JSON.stringify(payload);
-        const bodyBytes = new TextEncoder().encode(body).length;
         // UTF-8 bytes are a conservative estimate, not a model-specific tokenizer.
-        if (bodyBytes > 2 * 1024 * 1024 ||
-          bodyBytes + Number(payload.max_output_tokens) + 512 >= this.budgets.context_window) {
+        if (!this.withinBudget(payload)) {
           throw new ResponsesError('responses_budget');
         }
         const response = await fetch(`${this.baseUrl}/responses`, {
@@ -366,9 +383,10 @@ export class ResponsesClient {
         const mime = response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
         stage = request.stream && mime !== 'application/json' && !mime?.endsWith('+json') ? 'stream' : 'parse';
         // A gateway may return a complete JSON response despite stream:true. Same completion checks apply.
+        const effectiveRequest = { ...request, max_output_tokens: Number(payload.max_output_tokens) };
         const result = stage === 'stream'
-          ? await this.readStream(response, request, signal, onText)
-          : parseResponse(await readJsonBody(response, signal, MAX_RESPONSE_CHARS), request);
+          ? await this.readStream(response, effectiveRequest, signal, onText)
+          : parseResponse(await readJsonBody(response, signal, MAX_RESPONSE_CHARS), effectiveRequest);
         return { ...result, requestId };
       }
     } catch (error) {

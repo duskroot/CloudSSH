@@ -12,13 +12,25 @@ const RESPONSE_ERROR_CODES = [
 export function responseErrorMessage(code: unknown, status?: number, details?: unknown): string {
   const known = RESPONSE_ERROR_CODES.find(value => value === code) || 'responses_failed';
   const httpStatus = Number.isInteger(status) && status! >= 100 && status! <= 599 ? status! : '';
-  const message = t(`agent.errors.${known}` as Parameters<typeof t>[0], { status: httpStatus });
   const diagnostics = normalizeResponseDiagnostics(details);
+  const base = t(`agent.errors.${known}` as Parameters<typeof t>[0], { status: httpStatus });
+  const message = diagnostics.purpose === 'checkpoint'
+    ? t('agent.checkpointFailure') + '\n' + (known === 'responses_incomplete' ? t('agent.checkpointIncomplete') : base)
+    : base;
   if (!Object.keys(diagnostics).length) return message;
-  return message + '\n' + t('agent.errorDetails', {
+  let result = message + '\n' + t('agent.errorDetails', {
     purpose: diagnostics.purpose ? t(`agent.errorPurpose.${diagnostics.purpose}`) : '-',
     stage: diagnostics.stage ? t(`agent.errorStage.${diagnostics.stage}`) : '-',
     parameter: diagnostics.parameter ?? '-', providerCode: diagnostics.providerCode ?? '-',
     requestId: diagnostics.requestId ?? '-',
   });
+  if (diagnostics.incompleteReason || diagnostics.requestedOutputTokens != null ||
+    diagnostics.outputTokens != null || diagnostics.reasoningTokens != null) {
+    result += '\n' + t('agent.errorTokenDetails', {
+      reason: diagnostics.incompleteReason ? t(`agent.incompleteReason.${diagnostics.incompleteReason}`) : '-',
+      requested: diagnostics.requestedOutputTokens ?? '-', output: diagnostics.outputTokens ?? '-',
+      reasoning: diagnostics.reasoningTokens ?? '-',
+    });
+  }
+  return result;
 }

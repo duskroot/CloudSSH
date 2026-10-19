@@ -111,6 +111,50 @@ test('an auxiliary memory failure warns without removing the active task stream'
   await expect(page.locator('#agent-messages')).toContainText('ACTIVE_STREAM');
 });
 
+for (const [locale, recovery, fallback, paused] of [
+  ['zh-CN', '正在缩小输入', '本地执行事实', '安全暂停'],
+  ['zh-TW', '正在縮小輸入', '本機執行事實', '安全暫停'],
+  ['en-US', 'Regenerating once', 'local execution facts', 'safely paused'],
+]) {
+  test(`checkpoint recovery, fallback and pause diagnostics are localized (${locale})`, async ({ page }) => {
+    await mount(page, locale);
+    await page.evaluate(() => {
+      const { panel, sent } = (window as any).__responsesAgent;
+      panel.sendMessage('Inspect');
+      const requestId = sent.at(-1).requestId;
+      panel.handleAgentFrame({ subType: 'stream_chunk', requestId, content: 'ACTIVE_CHECKPOINT_STREAM' });
+      panel.handleAgentFrame({ subType: 'context_status', requestId: 'stale', compacted: true, checkpointSource: 'local' });
+    });
+    await expect(page.locator('.app-toast')).toHaveCount(0);
+    await page.evaluate(() => {
+      const { panel, sent } = (window as any).__responsesAgent;
+      panel.handleAgentFrame({ subType: 'context_status', requestId: sent.at(-1).requestId, recovering: true });
+    });
+    await expect(page.locator('.app-toast').filter({ hasText: recovery })).toBeVisible();
+    await page.evaluate(() => {
+      const { panel, sent } = (window as any).__responsesAgent;
+      panel.handleAgentFrame({ subType: 'context_status', requestId: sent.at(-1).requestId, compacted: true, checkpointSource: 'local' });
+    });
+    await expect(page.locator('.app-toast').filter({ hasText: fallback })).toBeVisible();
+    await expect(page.locator('#agent-send-btn')).toHaveClass(/is-stopping/);
+    await expect(page.locator('#agent-messages')).toContainText('ACTIVE_CHECKPOINT_STREAM');
+    await page.evaluate(() => {
+      const { panel, sent } = (window as any).__responsesAgent;
+      const requestId = sent.at(-1).requestId;
+      panel.handleAgentFrame({ subType: 'error', requestId, runId: 1, code: 'responses_incomplete',
+        message: 'SECRET_PROVIDER_BODY', diagnostics: { purpose: 'checkpoint', stage: 'parse',
+          incompleteReason: 'max_output_tokens', requestedOutputTokens: 8192, outputTokens: 8000,
+          reasoningTokens: 7900, requestId: '12345678-1234-4123-8123-123456789abc', rawReason: 'SECRET' } });
+      panel.handleAgentFrame({ subType: 'run_end', requestId, runId: 1, outcome: 'failed' });
+    });
+    const messages = page.locator('#agent-messages');
+    await expect(messages).toContainText(paused);
+    for (const value of ['8192', '8000', '7900', '12345678-1234-4123-8123-123456789abc']) await expect(messages).toContainText(value);
+    await expect(messages).not.toContainText('SECRET');
+    await expect(page.locator('#agent-send-btn')).not.toHaveClass(/is-stopping/);
+  });
+}
+
 test('model token budgets load, validate, save and reset without resending the saved API key', async ({ page }) => {
   await mockAnonymousSession(page);
   const writes: any[] = [];

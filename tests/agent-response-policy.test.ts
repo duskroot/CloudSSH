@@ -25,6 +25,25 @@ describe('AI model budgets and safe diagnostics', () => {
     expect(normalizeResponseDiagnostics({ purpose: 'SECRET', stage: 'SECRET', requestId: 'SECRET',
       parameter: 'SECRET', providerCode: 'SECRET' })).toEqual({});
   });
+  it('keeps only known incomplete reasons and bounded integer usage', () => {
+    expect(normalizeResponseDiagnostics({ incompleteReason: 'max_output_tokens', requestedOutputTokens: 8192,
+      outputTokens: 8000, reasoningTokens: 7900, rawReason: 'SECRET' }))
+      .toEqual({ incompleteReason: 'max_output_tokens', requestedOutputTokens: 8192, outputTokens: 8000, reasoningTokens: 7900 });
+    for (const value of ['SECRET', '100', -1, NaN, Infinity, 1.5, 1_000_001, {}, []]) {
+      expect(normalizeResponseDiagnostics({ incompleteReason: value, requestedOutputTokens: value,
+        outputTokens: value, reasoningTokens: value })).toEqual({});
+    }
+    expect(normalizeResponseDiagnostics({ outputTokens: 0, reasoningTokens: 0 })).toEqual({ outputTokens: 0, reasoningTokens: 0 });
+  });
+  it.each(['zh-CN', 'zh-TW', 'en-US'] as const)('explains checkpoint pauses and safe usage details in %s', locale => {
+    setLocale(locale, { persist: false });
+    const message = responseErrorMessage('responses_incomplete', undefined, { purpose: 'checkpoint', stage: 'parse',
+      requestId, incompleteReason: 'max_output_tokens', requestedOutputTokens: 8192, outputTokens: 8000,
+      reasoningTokens: 7900, providerMessage: 'SECRET' });
+    expect(message).toContain(locale === 'en-US' ? 'safely paused' : locale === 'zh-TW' ? '安全暫停' : '安全暂停');
+    expect(message).toContain('8192'); expect(message).toContain('8000'); expect(message).toContain('7900');
+    expect(message).not.toMatch(/SECRET|agent\./);
+  });
   it.each(['zh-CN', 'zh-TW', 'en-US'] as const)('renders only allowlisted error details in %s', locale => {
     setLocale(locale, { persist: false });
     const message = responseErrorMessage('responses_http', 400, {

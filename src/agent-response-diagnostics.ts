@@ -4,6 +4,7 @@ export const RESPONSE_STAGES = ['http', 'stream', 'parse'] as const;
 export const RESPONSE_PARAMETERS = [
   'model', 'input', 'max_output_tokens', 'prompt_cache_key', 'truncation',
   'parallel_tool_calls', 'tool_choice', 'tools', 'tools.strict', 'text.format', 'include', 'store',
+  'reasoning', 'reasoning.effort',
 ] as const;
 export const PROVIDER_ERROR_CODES = [
   'unsupported_parameter', 'unsupported_value', 'unsupported_feature', 'unsupported_model',
@@ -13,12 +14,18 @@ export const PROVIDER_ERROR_CODES = [
   'server_error', 'internal_server_error', 'overloaded_error', 'content_policy_violation',
 ] as const;
 
+export const RESPONSE_INCOMPLETE_REASONS = ['max_output_tokens', 'content_filter', 'unknown'] as const;
+
 export interface ResponseDiagnostics {
   purpose?: typeof RESPONSE_PURPOSES[number];
   stage?: typeof RESPONSE_STAGES[number];
   parameter?: typeof RESPONSE_PARAMETERS[number];
   providerCode?: typeof PROVIDER_ERROR_CODES[number];
   requestId?: string;
+  incompleteReason?: typeof RESPONSE_INCOMPLETE_REASONS[number];
+  requestedOutputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
 }
 
 function member<T extends string>(values: readonly T[], value: unknown): T | undefined {
@@ -38,6 +45,14 @@ export function normalizeResponseDiagnostics(value: unknown): ResponseDiagnostic
   if (stage) result.stage = stage;
   if (parameter) result.parameter = parameter;
   if (providerCode) result.providerCode = providerCode;
+  const incompleteReason = member(RESPONSE_INCOMPLETE_REASONS, raw.incompleteReason);
+  if (incompleteReason) result.incompleteReason = incompleteReason;
+  for (const key of ['requestedOutputTokens', 'outputTokens', 'reasoningTokens'] as const) {
+    const count = raw[key];
+    if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 && count <= 1_000_000) {
+      result[key] = count;
+    }
+  }
   // This is OUR generated correlation UUID, not an untrusted upstream header or echoed secret.
   if (typeof raw.requestId === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.requestId)) {
