@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.2] - 2026-10-19
+
+### Fixed
+
+- **长任务上下文压缩输出耗尽与中断恢复**：
+  - 解除辅助压缩请求固定的 4096 Token 上限，按用户配置预算动态分配（上限内含推理 Token），并引入 `reasoning: low` 辅助提示与可选参数兼容；
+  - 仅对明确报告输出耗尽（`incomplete_details.reason: 'max_output_tokens'`）的压缩响应在缩减输入后重新生成一次，共享 60 秒超时与取消边界，不重跑已执行的 SSH 操作；
+  - 增加基于不可分支回滚执行事实与保留用户请求的本地保底检查点，若必要事实与约束仍无法容纳则保留原上下文安全暂停，杜绝静默舍弃事实；
+  - 修复压缩中断后继续任务丢失未接受检查点与重复进入失败状态的问题，替换后继续任务完整继承上一轮检查点与安全事实。
+- **未完成响应与安全诊断增强**：
+  - 主任务与检查点仅在明确输出耗尽时尝试受限恢复，内容过滤与未识别原因严格抛出错误并不执行工具调用；
+  - 结构化错误诊断扩展白名单字段：中断原因（`incompleteReason`）、请求输出上限（`requestedOutputTokens`）、已用输出 Token（`outputTokens`）及推理 Token（`reasoningTokens`），同步简体中文、繁体中文与英文通知，不泄露上游原始错误正文。
+
+### Changed
+
+- **长任务与压缩回归覆盖**：
+  - 新增 86 步长任务端到端压缩与本地保底恢复测试，验证多轮执行命令无重复调用；
+  - 补齐检查点原子准备、超时清理、未完成响应诊断及三语浏览器 E2E 测试。
+
 ## [2.7.1] - 2026-10-19
 
 ### Fixed
