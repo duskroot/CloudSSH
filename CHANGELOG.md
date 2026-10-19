@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2026-10-19
+
+### Fixed
+
+- **Agent 记忆提炼格式与兼容性**：对齐提示词示例与 `MEMORY_FORMAT` 必填字段，并在指令中明确 JSON Schema、知识键值长度和原子事实要求，改善部分网关接受但忽略结构化输出参数时的提炼稳定性。
+- **无效提炼结果的受限纠正**：仅对完整响应中未通过本地格式校验的记忆结果，从原始证据重新生成一次；两次生成共享原有 25 秒超时、取消边界及单次 Token 预算，不重跑 SSH 命令、不回传无效模型输出。仍不合格时整批拒绝写入，保留旧记忆，不截断凭据；协议未完成、HTTP 错误或存储冲突不触发此纠正。
+- **记忆校验失败诊断缺失**：本地结构化校验错误补齐解析阶段、`text.format` 参数与本地请求 UUID，避免通知诊断信息全部显示为占位符，同时保持模型原文、上游头部及敏感内容不外泄。
+
+### Changed
+
+- **记忆提炼回归覆盖**：新增格式纠正、整批校验、凭据长度保护、共享超时、重置取消、存储冲突及用户记忆保护测试，并校验提示词示例与 Schema 的一致性。
+
 ## [2.7.0] - 2026-10-19
 
 ### Added
