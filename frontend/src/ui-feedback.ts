@@ -22,6 +22,7 @@ export interface PromptOptions extends ConfirmOptions {
   placeholder?: string;
   required?: boolean;
   maxLength?: number;
+  inputType?: 'text' | 'password';
   validate?: (value: string) => string | null;
 }
 
@@ -256,6 +257,8 @@ class DialogManager {
     if (request.kind === 'prompt') {
       this.inputGroup!.hidden = false;
       this.inputLabel!.textContent = request.options.label ?? t('dialog.inputLabel');
+      this.input!.type = request.options.inputType ?? 'text';
+      this.input!.autocomplete = request.options.inputType === 'password' ? 'off' : 'on';
       this.input!.value = request.options.defaultValue ?? '';
       this.input!.placeholder = request.options.placeholder ?? '';
       if (request.options.maxLength) {
@@ -326,6 +329,7 @@ class DialogManager {
     if (!request) return;
 
     this.active = null;
+    if (this.input) this.input.value = '';
     this.dialog?.close();
 
     if (request.kind === 'confirm') {

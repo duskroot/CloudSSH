@@ -28,6 +28,7 @@ export const zhCN = {
   'dialog.inputLabel': '输入内容',
   'dialog.inputRequired': '请输入内容',
   'authChallenge.title': '需要交互式认证',
+  'authChallenge.passwordFactor': '第一阶段认证已通过，服务器还要求密码。请提交本次连接的密码；此响应不会保存。',
   'authChallenge.target': '目标主机：{host}:{port}',
   'authChallenge.unknownHost': '未知主机',
   'authChallenge.remoteRequest': '以下内容由远程 SSH 服务器提供，请仅提交该服务器要求的认证信息。',
@@ -43,6 +44,15 @@ export const zhCN = {
   'auth.port': '端口',
   'auth.user': '用户名',
   'auth.method': '认证方式',
+  'auth.keyUnlockTitle': '解锁加密私钥',
+  'auth.keyPassphrase': '私钥口令',
+  'auth.keyUnlockHint': '私钥在浏览器内解密，口令不保存。连接时，解锁后的私钥仍会发送至 Worker 用于 SSH 签名。',
+  'auth.keyUnlockSaveWarning': '保存服务器需要将解锁后的私钥发送至 Worker，并按现有账号凭据方案加密保存（不是独立 KMS 保护）。私钥口令不会保存。是否允许？',
+  'auth.keyUnlocking': '正在浏览器内解锁私钥…',
+  'auth.keyUnlockError': '无法解锁私钥，请检查口令及文件是否完整。',
+  'auth.keyUnlockUnsupported': '暂不支持该私钥加密方式。支持 OpenSSH bcrypt/AES-CTR 及 PKCS#8 PBES2/PBKDF2/AES-CBC。',
+  'auth.keyUnlockBudget': '私钥大小或密钥派生参数超过浏览器安全预算。',
+  'auth.keyUnlockTransient': '解锁私钥仅用于本次连接，已关闭凭据记忆；口令不会保存。',
   'auth.keyPlaceholder':
     '-----BEGIN OPENSSH PRIVATE KEY-----\n...粘贴私钥内容...\n-----END OPENSSH PRIVATE KEY-----',
   'auth.chooseKeyFile': '选择密钥文件',
@@ -345,6 +355,9 @@ export const zhCN = {
   'terminal.status.algorithmError': '算法协商失败：{message}',
   'terminal.status.serviceError': 'SSH 服务请求失败：{message}',
   'terminal.status.hostKeyAccepted': '已接受主机密钥',
+  'terminal.status.hostKeyInvalid': '主机密钥或证书无效，连接已终止，请核对服务器配置。',
+  'terminal.status.hostKeyCertificateTofu':
+    '主机证书签名已检查；主机身份按底层公钥指纹（TOFU）验证，未信任签发 CA。',
   'terminal.status.hostKeyFingerprintMatchedUnverified':
     '已知主机指纹匹配（{keyType}），但签名未验证',
   'terminal.status.hostKeyFirstSeen': '服务器指纹：{fingerprint}（{keyType}，首次连接，验证通过）',

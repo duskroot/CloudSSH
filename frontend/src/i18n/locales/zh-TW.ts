@@ -28,6 +28,7 @@ export const zhTW = {
   'dialog.inputLabel': '輸入內容',
   'dialog.inputRequired': '請輸入內容',
   'authChallenge.title': '需要互動式驗證',
+  'authChallenge.passwordFactor': '第一階段驗證已通過，伺服器還要求密碼。請提交本次連線的密碼；此回應不會儲存。',
   'authChallenge.target': '目標主機：{host}:{port}',
   'authChallenge.unknownHost': '未知主機',
   'authChallenge.remoteRequest': '以下內容由遠端 SSH 伺服器提供，請僅提交該伺服器要求的驗證資訊。',
@@ -43,6 +44,15 @@ export const zhTW = {
   'auth.port': '連接埠',
   'auth.user': '使用者名稱',
   'auth.method': '驗證方式',
+  'auth.keyUnlockTitle': '解鎖加密私鑰',
+  'auth.keyPassphrase': '私鑰口令',
+  'auth.keyUnlockHint': '私鑰在瀏覽器內解密，口令不儲存。連線時，解鎖後的私鑰仍會傳送至 Worker 用於 SSH 簽章。',
+  'auth.keyUnlockSaveWarning': '儲存伺服器需要將解鎖後的私鑰傳送至 Worker，並按既有帳號憑據方案加密儲存（並非獨立 KMS 保護）。私鑰口令不會儲存。是否允許？',
+  'auth.keyUnlocking': '正在瀏覽器內解鎖私鑰…',
+  'auth.keyUnlockError': '無法解鎖私鑰，請檢查口令及檔案是否完整。',
+  'auth.keyUnlockUnsupported': '暫不支援此私鑰加密方式。支援 OpenSSH bcrypt/AES-CTR 及 PKCS#8 PBES2/PBKDF2/AES-CBC。',
+  'auth.keyUnlockBudget': '私鑰大小或金鑰衍生參數超過瀏覽器安全預算。',
+  'auth.keyUnlockTransient': '解鎖私鑰僅用於本次連線，已關閉憑據記憶；口令不會儲存。',
   'auth.keyPlaceholder':
     '-----BEGIN OPENSSH PRIVATE KEY-----\n...貼上私鑰內容...\n-----END OPENSSH PRIVATE KEY-----',
   'auth.chooseKeyFile': '選擇金鑰檔案',
@@ -345,6 +355,9 @@ export const zhTW = {
   'terminal.status.algorithmError': '演算法協商失敗：{message}',
   'terminal.status.serviceError': 'SSH 服務請求失敗：{message}',
   'terminal.status.hostKeyAccepted': '已接受主機金鑰',
+  'terminal.status.hostKeyInvalid': '主機金鑰或憑證無效，連線已終止，請核對伺服器設定。',
+  'terminal.status.hostKeyCertificateTofu':
+    '主機憑證簽章已檢查；主機身分按底層公鑰指紋（TOFU）驗證，未信任簽發 CA。',
   'terminal.status.hostKeyFingerprintMatchedUnverified':
     '已知主機指紋相符（{keyType}），但簽名未驗證',
   'terminal.status.hostKeyFirstSeen': '伺服器指紋：{fingerprint}（{keyType}，首次連線，驗證通過）',

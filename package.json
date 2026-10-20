@@ -18,6 +18,8 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest watch",
     "test:e2e": "playwright test",
+    "test:interop": "CLOUDSSH_SSHD_INTEROP=1 CLOUDSSH_GATEWAY_INTEROP=1 vitest run tests/interop",
+
     "verify": "pnpm run typecheck && pnpm test && pnpm run build:frontend && pnpm run test:e2e"
   },
   "knip": {

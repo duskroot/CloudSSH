@@ -47,6 +47,8 @@ const NON_RETRIABLE_AUTH_EVENTS = new Set([
   'session_idle_timeout',
   'output_backlog_closed',
   'packet_error',
+  'algorithm_error',
+  'host_key_invalid',
 ]);
 const RTT_HEARTBEAT_INTERVAL_MS = 5000;
 const HEARTBEAT_RESPONSE_TIMEOUT_MS = 10_000;
