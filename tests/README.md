@@ -98,6 +98,10 @@ pnpm run verify
 - IPv4/IPv6 保留地址、DoH 解析与 DNS rebinding 防护
 - Agent 危险命令拦截、确认规则和 SSRF URL 校验
 - 主机密钥信任：首见指纹确认、更换指纹阻断与路由作用域隔离
+- `ssh/host-key.test.ts`：Ed25519/RSA-SHA2/ECDSA 主机证书（含真实 ssh-keygen 公共夹具）、Ed25519/RSA-SHA2/ECDSA CA 签名、裸主机密钥签名、算法绑定、证书续签稳定指纹、生命周期及有界畸形报文；证书 CA 签名完整性不等于信任该 CA。
+- `worker/host-certificate-session.test.ts`：证书 KEX → NEWKEYS → none 认证、完整证书交换哈希、错误签名失败关闭、首见/已知/变更指纹、分享禁止替换、重协商续签/换钥及异步关闭边界；`e2e/none-auth.spec.ts` 验证算法/主机密钥错误不触发自动重连。
+- `worker/password-factor.test.ts`：公钥后 password 的 partial_success、空响应、挑战/会话绑定、超时/取消/关闭清理和分享/中间跳板门控。
+- `private-key-unlock.test.ts` 与 `e2e/private-key-import.spec.ts`：真实 ssh-keygen/openssl 加密私钥解锁、签名、错误口令及 KDF/DER 预算；匿名不持久化、保存需独立同意、关闭编辑器后的迟到解锁结果不提交。公共加密夹具口令为 `cloudssh-fixture-passphrase`，不能用于真实账户。
 - 键盘交互认证、OS 检测、跳板链、SFTP 上传冲突、分享会话策略
 - UserDB 服务器标签/片段迁移、规范化、序列化、更新与隔离
 - AI 模型代理安全：同 Base URL 强绑定免密拉取、跨地址凭据外带拦截（Credential Exfiltration）、CSRF Origin 防护与敏感 Token 脱敏
@@ -120,6 +124,15 @@ pnpm run verify
 - 终端与用户空间液态分段切换器（Liquid Segmented Controls）：双边异步物理弹簧引擎、液态透镜滑块拉伸与泊位、桌面专属分段条与移动端菜单平行入口互斥联动
 - AI 配置与模型选择：自定义 Combobox 下拉组件（全量展开、即时过滤、一键清空、多主题自适应）、免密拉取联动与敏感凭证即时清理
 - 构建可复现性、xterm 生产构建兼容和原生弹窗禁用
+
+### 真实 SSH 互操作（显式运行）
+
+`pnpm run test:interop` 在 macOS/Linux 上启动 loopback-only OpenSSH 和独立 Go SSH 网关，
+需要本机 `sshd`/`ssh-keygen` 和 Go ≥1.24；不会修改系统 SSH 配置、用户密码或授权文件。
+OpenSSH 覆盖七种裸钥/证书协商、PTY/Shell、exec 与 SFTP；Go 网关覆盖 none/password/OTP/
+公钥后 password 及错误响应。默认 `pnpm test` 跳过这些进程级用例，独立运行失败必须按失败处理。
+`ssh-interop.yml` 提供 Ubuntu/macOS CI，尚不代表已在远端运行通过。
+详细边界见 [SSH 兼容说明](../docs/ssh-compatibility.md)。
 
 ### 浏览器 E2E
 
@@ -144,6 +157,6 @@ pnpm run verify
 ## 当前限制
 
 - Playwright 的完整界面与无障碍回归主要运行 Chromium；API 隔离守卫、认证挑战、iOS 输入法、移动端后台连接恢复、SFTP 面板操作、终端触摸滚轮和焦点报告另在 WebKit 设备项目中执行。Firefox 尚未纳入当前质量门禁。
-- 浏览器 E2E 主要通过 mock API 验证前端行为，尚未连接真实 OpenSSH/Dropbear 和 SFTP 服务。
+- 浏览器 E2E 仍以 mock API 验证前端行为；真实 OpenSSH/SFTP 和 Go 网关由显式 `test:interop` 单独覆盖。尚未实测 Dropbear、Windows OpenSSH 和 Cloudflare 真机链路。
 - SSHSessionDO、SSH 会话状态机、SFTP 数据流和 AgentCore 等运行态模块的覆盖率仍偏低。
 - 新增协议状态、WebSocket 消息或安全边界时，应优先补充运行时错误、取消、超时和畸形输入测试，而不仅验证成功路径。

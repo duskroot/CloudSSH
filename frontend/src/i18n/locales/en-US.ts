@@ -57,6 +57,8 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   'dialog.inputLabel': 'Input',
   'dialog.inputRequired': 'Please enter a value',
   'authChallenge.title': 'Interactive authentication required',
+  'authChallenge.passwordFactor':
+    'The first authentication stage succeeded; the server also requires a password. Submit it for this connection only. This response is not saved.',
   'authChallenge.target': 'Target host: {host}:{port}',
   'authChallenge.unknownHost': 'Unknown host',
   'authChallenge.remoteRequest':
@@ -75,6 +77,15 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   'auth.port': 'Port',
   'auth.user': 'Username',
   'auth.method': 'Authentication method',
+  'auth.keyUnlockTitle': 'Unlock encrypted private key',
+  'auth.keyPassphrase': 'Private-key passphrase',
+  'auth.keyUnlockHint': 'The key is decrypted in your browser; the passphrase is not saved. The unlocked key is still sent to the Worker to sign the SSH authentication request.',
+  'auth.keyUnlockSaveWarning': 'Saving this server sends the unlocked private key to the Worker and stores it using the existing account credential encryption (not independent KMS protection). The passphrase is not saved. Allow this?',
+  'auth.keyUnlocking': 'Unlocking the private key in your browser…',
+  'auth.keyUnlockError': 'Could not unlock the key. Check the passphrase and file integrity.',
+  'auth.keyUnlockUnsupported': 'Unsupported key encryption. OpenSSH bcrypt/AES-CTR and PKCS#8 PBES2/PBKDF2/AES-CBC are supported.',
+  'auth.keyUnlockBudget': 'The key size or derivation parameters exceed the browser safety budget.',
+  'auth.keyUnlockTransient': 'The unlocked key is for this connection only; credential remembering has been disabled. The passphrase is not saved.',
   'auth.keyPlaceholder':
     '-----BEGIN OPENSSH PRIVATE KEY-----\n...paste private key here...\n-----END OPENSSH PRIVATE KEY-----',
   'auth.chooseKeyFile': 'Choose key file',
@@ -387,6 +398,10 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   'terminal.status.algorithmError': 'Algorithm negotiation failed: {message}',
   'terminal.status.serviceError': 'SSH service request failed: {message}',
   'terminal.status.hostKeyAccepted': 'Host key accepted',
+  'terminal.status.hostKeyInvalid':
+    'Invalid host key or certificate. Connection closed; check the server configuration.',
+  'terminal.status.hostKeyCertificateTofu':
+    'Host certificate signature checked; host identity uses the underlying public-key fingerprint (TOFU), not CA trust.',
   'terminal.status.hostKeyFirstSeen':
     'Server fingerprint: {fingerprint} ({keyType}, first connection, verified)',
   'terminal.status.hostKeyNotSaved':

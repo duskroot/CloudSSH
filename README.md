@@ -81,7 +81,8 @@
 ### 安全可靠
 
 - **双段加密**：浏览器 ↔ Worker 走 HTTPS/WSS；Worker ↔ 服务器走完整 SSH-2.0 协议（Curve25519-SHA256/ECDH-NISTP256 密钥交换、AES-256-GCM/CTR 加密、HMAC-SHA2 完整性校验）。
-- **主机指纹验证**：Ed25519/ECDSA P-256/P-384/P-521/RSA 签名校验，首次连接展示 SHA-256 指纹（TOFU）。
+- **主机指纹验证**：Ed25519/ECDSA P-256/P-384/P-521/RSA 签名校验，首次连接展示 SHA-256 指纹（TOFU）。兼容 Ed25519、RSA-SHA2-256/512 和 ECDSA P-256/P-384/P-521 OpenSSH 主机证书：检查证书签名、有效期、主机类型和关键限制，再以底层公钥验证 SSH 握手并保存稳定指纹。此模式仍是公钥 TOFU，不自动信任证书内的 CA，也不把 principals 当作已获 CA 授权的主机身份；尚不提供 CA 信任库。证书续签不改变同一公钥的指纹，实际公钥变更仍须明确确认。
+- **加密私钥与 MFA**：支持在浏览器内解锁 OpenSSH bcrypt/AES-CTR 与 PKCS#8 PBES2 私钥；口令不保存、不发送至 Worker，但解锁私钥仍由 Worker 用于签名。匿名连接默认不持久化解锁材料，保存服务器须单独同意。支持公钥成功后的显式 password 第二因素，保留现有 OTP 交互认证。范围、预算与真实互操作测试见 [SSH 兼容说明](docs/ssh-compatibility.md)。
 - **多层防护**：IPv6/保留地址 SSRF + DNS 防重绑定、Worker 内存限流削峰、Turnstile 人机验证；已保存凭据在每用户 SQLite 中以 AES-256-GCM 加密存储。
 - **会话隔离**：每个终端会话由独立 Durable Object 管理，活动 SSH TCP 连接使会话保持唤醒。
 - **凭据内部流转**：一键连接时服务端解密凭据并经一次性令牌内部传递到会话，浏览器全程不接触明文。
