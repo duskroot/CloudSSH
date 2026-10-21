@@ -669,6 +669,7 @@ export class TabManager {
     const termPort = document.getElementById('term-port');
     const termStatus = document.getElementById('term-status');
     const statusText = document.getElementById('status-text');
+    tab.terminal.renderHostMetrics();
 
     if (tab.hostInfo) {
       if (termHost) {

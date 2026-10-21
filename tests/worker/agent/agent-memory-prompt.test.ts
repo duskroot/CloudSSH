@@ -15,7 +15,7 @@ const memory: UnifiedServerMemory = {
 
 describe('Responses task records and server memory', () => {
   it('anchors system time even without memory in every locale', () => {
-    for (const [locale, heading] of [['zh-CN', '当前系统时间'], ['zh-TW', '當前系統時間'], ['en-US', 'Current System Time']] as const) {
+    for (const [locale, heading] of [['zh-CN', '当前系统时间'], ['en-US', 'Current System Time']] as const) {
       expect(formatServerMemoryForPrompt({ workLogs: [], knowledge: [] }, locale, now, 'UTC')).toContain(heading);
     }
   });
@@ -24,8 +24,6 @@ describe('Responses task records and server memory', () => {
     const zh = formatServerMemoryForPrompt(memory, 'zh-CN', now, 'UTC');
     expect(zh).toContain('昨天'); expect(zh).toContain('8080 被占用');
     expect(zh).toContain('deploy_token: ghp_example'); expect(zh).toContain('严禁再次向用户重复索取');
-    const tw = formatServerMemoryForPrompt(memory, 'zh-TW', now, 'UTC');
-    expect(tw).toContain('憑據／金鑰'); expect(tw).toContain('嚴禁再次向使用者重複索取');
     const en = formatServerMemoryForPrompt(memory, 'en-US', now, 'UTC');
     expect(en).toContain('Yesterday'); expect(en).toContain('REUSE IT DIRECTLY');
   });
@@ -33,10 +31,10 @@ describe('Responses task records and server memory', () => {
   it('bounds full-capacity memory without cutting continuity guidance', () => {
     const huge = { workLogs: Array.from({ length: 10 }, (_, i) => ({ ...memory.workLogs[0], id: i, summary: 'x'.repeat(300) })),
       knowledge: Array.from({ length: 50 }, (_, i) => ({ ...memory.knowledge[0], id: i, key: `key_${i}`, value: 'y'.repeat(512) })) };
-    for (const locale of ['zh-CN', 'zh-TW', 'en-US'] as const) {
+    for (const locale of ['zh-CN', 'en-US'] as const) {
       const text = formatServerMemoryForPrompt(huge, locale, now, 'UTC');
       expect(text.length).toBeLessThan(MAX_MEMORY_PROMPT_CHARS + 800);
-      expect(text).toContain(locale === 'en-US' ? 'DO NOT repeatedly ask' : locale === 'zh-TW' ? '嚴禁再次' : '严禁再次');
+      expect(text).toContain(locale === 'en-US' ? 'DO NOT repeatedly ask' : '严禁再次');
     }
   });
 
@@ -82,8 +80,6 @@ describe('Responses task records and server memory', () => {
     expect(text).toContain('当前已沉淀的知识'); expect(text).toContain('deploy_token');
     expect(text).toContain('用户诉求: 改为 9090'); expect(text).toContain('最终结论: 修改完成');
     expect(text).toContain('必须输出 "mode": "update_latest"');
-    const tw = formatDistillationPromptInput(records, recent, [], { now, locale: 'zh-TW', timeZone: 'UTC' });
-    expect(tw).toContain('必須輸出 "mode": "update_latest"');
   });
 
   it('keeps prompt examples aligned with every required memory schema field', () => {

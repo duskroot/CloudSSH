@@ -1,3 +1,4 @@
+import type { SavedCredential } from './credential-manager';
 import { copyTextToClipboard } from './clipboard';
 import { isValidTunnelHostname, maskIPAddress } from './host-display';
 import { getLocale, onLocaleChange, t } from './i18n';
@@ -35,6 +36,8 @@ export interface ServerConfig {
   cf_tunnel_host?: string | null;
   cf_access_client_id?: string | null;
   has_cf_access_client_secret?: boolean;
+  credential_id?: number | null;
+  credential_name?: string | null;
   /** 最近连接成功的 Unix 毫秒时间戳 */
   last_connected_at?: number | null;
   created_at: string;
@@ -55,6 +58,7 @@ interface ServerSavePayload {
   cf_tunnel_host?: string;
   cf_access_client_id?: string;
   cf_access_client_secret?: string;
+  credential_id?: number | null;
 }
 
 interface ServerSaveResponse {
@@ -185,7 +189,9 @@ export class ServerList {
   private onConnect: (wsUrl: string, serverName: string, hostInfo?: SSHHostInfo) => void;
   private editingServerId: number | null = null;
   private editingOriginalAuthMethod: ServerConfig['auth_method'] | null = null;
-  private modalAuthMode: 'password' | 'key' | 'none' = 'password';
+  private editingOriginalCredentialId: number | null = null;
+  private savedCredentials: SavedCredential[] = [];
+  private modalAuthMode: 'credential' | 'password' | 'key' | 'none' = 'password';
   private modalTransportMode: 'direct' | 'cf_tunnel' = 'direct';
   private modalGeneration = 0;
   private clearCfAccessClientSecret = false;
@@ -297,6 +303,13 @@ export class ServerList {
     document
       .getElementById('empty-add-btn')
       ?.addEventListener('click', () => this.showModal('add'));
+    document.getElementById('server-saved-credential')?.addEventListener('change', () => {
+      const selected = this.selectedSavedCredential();
+      if (selected) {
+        (document.getElementById('server-username') as HTMLInputElement).value = selected.username;
+      }
+      document.getElementById('server-saved-credential-hint')?.classList.toggle('hidden', !selected);
+    });
 
     const searchInput = document.getElementById('server-search') as HTMLInputElement | null;
     const clearSearchButton = document.getElementById('server-search-clear');
@@ -315,14 +328,19 @@ export class ServerList {
       this.renderServerGrid();
     });
 
-    (document.getElementById('server-tag-filter') as HTMLSelectElement | null)?.addEventListener(
-      'change',
-      (event) => {
-        this.selectedTag = (event.target as HTMLSelectElement).value;
-        this.currentPage = 1;
-        this.renderServerGrid();
-      }
-    );
+    document.getElementById('server-group-list')?.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-group]');
+      if (!button) return;
+      this.selectedTag = button.dataset.group || '';
+      this.currentPage = 1;
+      this.renderServerGrid();
+    });
+    document.getElementById('server-form-tab-basic')?.addEventListener('click', () => {
+      this.setServerFormTab('basic');
+    });
+    document.getElementById('server-form-tab-advanced')?.addEventListener('click', () => {
+      this.setServerFormTab('advanced');
+    });
     const sortSelect = document.getElementById('server-sort') as HTMLSelectElement | null;
     if (sortSelect) {
       sortSelect.value = this.sortMode;
@@ -370,6 +388,9 @@ export class ServerList {
     });
 
     // Modal 认证方式切换
+    document
+      .getElementById('modal-auth-tab-credential')
+      ?.addEventListener('click', () => this.setModalAuthMode('credential'));
     document
       .getElementById('modal-auth-tab-password')
       ?.addEventListener('click', () => this.setModalAuthMode('password'));
@@ -439,14 +460,13 @@ export class ServerList {
     const searchWrapper = document.getElementById('server-search-wrapper');
     const searchEmptyState = document.getElementById('server-search-empty');
     const clearSearchButton = document.getElementById('server-search-clear');
-    const tagFilterWrapper = document.getElementById('server-tag-filter-wrapper');
-    const tagFilter = document.getElementById('server-tag-filter') as HTMLSelectElement | null;
     const pagination = document.getElementById('server-pagination');
     if (!grid || !emptyState || !searchWrapper || !searchEmptyState) return;
     grid.removeAttribute('aria-busy');
 
     if (this.servers.length === 0) {
       grid.innerHTML = '';
+      document.getElementById('server-group-sidebar')?.classList.add('hidden');
       searchWrapper.classList.add('hidden');
       pagination?.classList.add('hidden');
       pagination?.classList.remove('flex');
@@ -465,18 +485,8 @@ export class ServerList {
     const allTags = [...new Set(this.servers.flatMap((server) => server.tags || []))].sort((a, b) =>
       a.localeCompare(b)
     );
-    tagFilterWrapper?.classList.toggle('hidden', allTags.length === 0);
-    if (tagFilter) {
-      if (this.selectedTag && !allTags.includes(this.selectedTag)) this.selectedTag = '';
-    // pi-lens-ignore: no-inner-html, ts-xss-dom-sink
-      tagFilter.innerHTML = [
-        `<option value="">${t('server.allTags')}</option>`,
-        ...allTags.map(
-          (tag) => `<option value="${this.escapeHtml(tag)}">${this.escapeHtml(tag)}</option>`
-        ),
-      ].join('');
-      tagFilter.value = this.selectedTag;
-    }
+    if (this.selectedTag && !allTags.includes(this.selectedTag)) this.selectedTag = '';
+    this.renderGroupList(allTags);
 
     const sortSelect = document.getElementById('server-sort') as HTMLSelectElement | null;
     if (sortSelect && sortSelect.value !== this.sortMode) {
@@ -560,6 +570,33 @@ export class ServerList {
   }
 
   /** 冷加载骨架屏：按当前分页尺寸渲染占位卡片，fetchServers 完成后由 renderServerGrid 整体替换 */
+  private renderGroupList(groups: readonly string[]): void {
+    const sidebar = document.getElementById('server-group-sidebar');
+    const list = document.getElementById('server-group-list');
+    if (!sidebar || !list) return;
+    sidebar.classList.remove('hidden');
+    list.replaceChildren();
+    const entries = ['', ...groups];
+    for (const group of entries) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'server-group-item';
+      button.dataset.group = group;
+      button.textContent = group ? group : t('server.allTags');
+      if (group === this.selectedTag) button.classList.add('server-group-item-active');
+      list.append(button);
+    }
+  }
+
+  private setServerFormTab(tab: 'basic' | 'advanced'): void {
+    document.getElementById('server-form-basic')?.classList.toggle('hidden', tab !== 'basic');
+    document.getElementById('server-form-advanced')?.classList.toggle('hidden', tab !== 'advanced');
+    document.getElementById('server-form-tab-basic')?.classList.toggle('server-form-tab-active', tab === 'basic');
+    document.getElementById('server-form-tab-advanced')?.classList.toggle('server-form-tab-active', tab === 'advanced');
+    document.getElementById('server-form-tab-basic')?.setAttribute('aria-selected', String(tab === 'basic'));
+    document.getElementById('server-form-tab-advanced')?.setAttribute('aria-selected', String(tab === 'advanced'));
+  }
+
   private renderSkeletonGrid(): void {
     const grid = document.getElementById('server-grid');
     if (!grid) return;
@@ -628,7 +665,7 @@ export class ServerList {
         ? `<div class="flex flex-wrap gap-1 mt-3">${server.tags
             .map(
               (tag) =>
-                `<span class="text-[9px] text-primary border border-[var(--border-strong)] px-1.5 py-0.5">#${this.escapeHtml(tag)}</span>`
+                `<span class="text-[9px] text-primary border border-[var(--border-strong)] px-1.5 py-0.5">${this.escapeHtml(tag)}</span>`
             )
             .join('')}</div>`
         : '';
@@ -640,6 +677,12 @@ export class ServerList {
           <span class="text-on-surface min-w-0 truncate" title="${this.escapeAttr(jumpNames.join(' → '))}">${jumpNames.map((name) => this.escapeHtml(name)).join(' → ')}</span>
         </div>`
         : '';
+    const credentialMarkup = server.credential_name
+      ? `<div class="server-card-meta-row flex items-center gap-2 min-w-0">
+          <span class="text-dim">${t('server.credentialOnCard')}</span>
+          <span class="text-on-surface min-w-0 truncate" title="${this.escapeAttr(server.credential_name)}">${this.escapeHtml(server.credential_name)}</span>
+        </div>`
+      : '';
 
     const lastConnectedText = server.last_connected_at
       ? formatTimestampWithRelative(server.last_connected_at, Date.now(), getLocale())
@@ -682,7 +725,8 @@ export class ServerList {
             <span class="text-dim">${t('server.userLabel')}</span>
             <span class="text-on-surface min-w-0 truncate">${this.escapeHtml(server.username)}</span>
           </div>
-          ${jumpMarkup}
+            ${jumpMarkup}
+            ${credentialMarkup}
           <div class="server-card-region-row flex items-center gap-2 min-w-0">
             <span class="text-dim">${t('server.regionLabel')}</span>
             <span class="text-on-surface flex items-center gap-1">
@@ -825,6 +869,8 @@ export class ServerList {
     this.modalGeneration++;
     this.editingServerId = mode === 'edit' && server ? server.id : null;
     this.editingOriginalAuthMethod = mode === 'edit' && server ? server.auth_method : null;
+    this.editingOriginalCredentialId = mode === 'edit' && server?.credential_id ? server.credential_id : null;
+    this.setServerFormTab('basic');
 
     const modal = document.getElementById('server-modal');
     const title = document.getElementById('modal-title');
@@ -861,7 +907,13 @@ export class ServerList {
       );
 
       this.setModalAuthMode(
-        server.auth_method === 'publickey' ? 'key' : server.auth_method === 'none' ? 'none' : 'password'
+        server.credential_id
+          ? 'credential'
+          : server.auth_method === 'publickey'
+            ? 'key'
+            : server.auth_method === 'none'
+              ? 'none'
+              : 'password'
       );
 
       const transport = server.transport_type === 'cf_tunnel' ? 'cf_tunnel' : 'direct';
@@ -948,6 +1000,14 @@ export class ServerList {
     }
 
     this.updateRegionControls();
+    const generation = this.modalGeneration;
+    const selectedCredentialId = mode === 'edit' || mode === 'clone' ? server?.credential_id ?? null : null;
+    void this.refreshSavedCredentials().then(() => {
+      if (generation !== this.modalGeneration) return;
+      const keepCredential = this.modalAuthMode === 'credential' ? selectedCredentialId : null;
+      this.populateSavedCredentialSelect(keepCredential);
+      document.getElementById('server-saved-credential-hint')?.classList.toggle('hidden', !keepCredential);
+    });
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -966,6 +1026,42 @@ export class ServerList {
     }
     this.editingServerId = null;
     this.editingOriginalAuthMethod = null;
+    this.editingOriginalCredentialId = null;
+  }
+
+  async refreshSavedCredentials(): Promise<void> {
+    const res = await fetch('/api/credentials');
+    if (!res.ok) return;
+    const rows = (await res.json()) as SavedCredential[];
+    this.savedCredentials = Array.isArray(rows) ? rows : [];
+    const select = document.getElementById('server-saved-credential') as HTMLSelectElement | null;
+    if (select && !document.getElementById('server-modal')?.classList.contains('hidden')) {
+      this.populateSavedCredentialSelect(select.value ? Number(select.value) : null);
+    }
+  }
+
+  private populateSavedCredentialSelect(selectedId: number | null): void {
+    const select = document.getElementById('server-saved-credential') as HTMLSelectElement | null;
+    if (!select) return;
+    const manual = select.querySelector('option[value=""]');
+    select.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = t('server.pickCredential');
+    select.append(placeholder);
+    for (const credential of this.savedCredentials) {
+      const option = document.createElement('option');
+      option.value = String(credential.id);
+      option.textContent = `${credential.name} (${credential.username})`;
+      select.append(option);
+    }
+    select.value = selectedId && this.savedCredentials.some((item) => item.id === selectedId) ? String(selectedId) : '';
+  }
+
+  private selectedSavedCredential(): SavedCredential | null {
+    const select = document.getElementById('server-saved-credential') as HTMLSelectElement | null;
+    const id = Number(select?.value);
+    return this.savedCredentials.find((item) => item.id === id) ?? null;
   }
 
   private setModalTransportMode(mode: 'direct' | 'cf_tunnel'): void {
@@ -1029,13 +1125,19 @@ export class ServerList {
     }
   }
 
-  private setModalAuthMode(mode: 'password' | 'key' | 'none'): void {
+  private setModalAuthMode(mode: 'credential' | 'password' | 'key' | 'none'): void {
+    if (mode !== 'credential') {
+      const select = document.getElementById('server-saved-credential') as HTMLSelectElement | null;
+      if (select) select.value = '';
+      document.getElementById('server-saved-credential-hint')?.classList.add('hidden');
+    }
     this.modalAuthMode = mode;
-    for (const value of ['password', 'key', 'none'] as const) {
-      const tab = document.getElementById(`modal-auth-tab-${value}`)!;
-      tab.classList.toggle('auth-tab-active', mode === value);
-      tab.setAttribute('aria-pressed', String(mode === value));
-      document.getElementById(`modal-${value}-section`)!.style.display = mode === value ? '' : 'none';
+    for (const value of ['credential', 'password', 'key', 'none'] as const) {
+      const tab = document.getElementById(`modal-auth-tab-${value}`);
+      const section = document.getElementById(`modal-${value}-section`);
+      tab?.classList.toggle('auth-tab-active', mode === value);
+      tab?.setAttribute('aria-pressed', String(mode === value));
+      if (section) section.style.display = mode === value ? '' : 'none';
     }
     const editingPassword =
       mode === 'password' &&
@@ -1190,21 +1292,46 @@ export class ServerList {
       return;
     }
 
-    const authMethod = this.modalAuthMode === 'key' ? 'publickey' : this.modalAuthMode;
+    const selectedCredential = this.modalAuthMode === 'credential' ? this.selectedSavedCredential() : null;
+    if (this.modalAuthMode === 'credential' && !selectedCredential) {
+      notify(t('server.pickCredential'), {
+        title: t('auth.incompleteCredentials'),
+        variant: 'warning',
+      });
+      this.setServerFormTab('basic');
+      return;
+    }
+    const authMethod = selectedCredential
+      ? selectedCredential.auth_method
+      : this.modalAuthMode === 'key'
+        ? 'publickey'
+        : this.modalAuthMode === 'none'
+          ? 'none'
+          : 'password';
     const useEmptyPassword =
+      !selectedCredential &&
       authMethod === 'password' &&
       (document.getElementById('server-empty-password') as HTMLInputElement).checked;
     let credential =
-      authMethod === 'none' || useEmptyPassword
+      selectedCredential || authMethod === 'none' || useEmptyPassword
         ? ''
         : authMethod === 'publickey' ? privateKey : password;
     const authMethodChanged =
       this.editingServerId !== null &&
       this.editingOriginalAuthMethod !== null &&
       authMethod !== this.editingOriginalAuthMethod;
+    const manualAfterVault = !selectedCredential && this.editingOriginalCredentialId !== null;
+
+    if (manualAfterVault && authMethod !== 'none' && !credential) {
+      notify(t('credential.required'), {
+        title: t('auth.incompleteCredentials'),
+        variant: 'warning',
+      });
+      return;
+    }
 
     // 只有私钥必须非空；编辑已有密码时留空仍保留原值，除非明确勾选设为空密码。
-    if (authMethod === 'publickey' && (!this.editingServerId || authMethodChanged) && !credential) {
+    if (!selectedCredential && authMethod === 'publickey' && (!this.editingServerId || authMethodChanged) && !credential) {
       notify(
         authMethodChanged
           ? t('server.credentialRequiredAfterAuthChange')
@@ -1243,7 +1370,7 @@ export class ServerList {
     `;
 
     try {
-      if (authMethod === 'publickey' && credential) {
+      if (!selectedCredential && authMethod === 'publickey' && credential) {
         const prepared = await preparePrivateKey(credential, true);
         if (!prepared || generation !== this.modalGeneration || this.modalAuthMode !== 'key' ||
             (document.getElementById('server-host') as HTMLInputElement).value.trim() !== host ||
@@ -1261,10 +1388,12 @@ export class ServerList {
         tags,
         transport_type: this.modalTransportMode,
         jump_server_id: isTunnel ? null : jumpServerId,
+        credential_id: selectedCredential ? selectedCredential.id : null,
       };
       if (
-        credential ||
-        (authMethod === 'password' && (!this.editingServerId || authMethodChanged || useEmptyPassword))
+        !selectedCredential &&
+        (credential ||
+          (authMethod === 'password' && (!this.editingServerId || authMethodChanged || useEmptyPassword)))
       ) {
         body.credential = credential;
       }

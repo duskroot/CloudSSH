@@ -14,7 +14,7 @@ function setup(exec?: (command: string, timeout: number, signal?: AbortSignal) =
 afterEach(() => vi.restoreAllMocks());
 
 describe('Responses task control', () => {
-  it.each(['zh-CN', 'zh-TW', 'en-US'] as const)('stops and closes every call before continuing (%s)', async locale => {
+  it.each(['zh-CN', 'en-US'] as const)('stops and closes every call before continuing (%s)', async locale => {
     let agent: AgentCore;
     const created = setup(async command => {
       if (!command.includes('PWD:$(pwd)')) agent.agentAbort('user_stopped');

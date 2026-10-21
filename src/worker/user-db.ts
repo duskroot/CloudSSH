@@ -41,6 +41,7 @@ interface StoredServerRow {
   cf_tunnel_host: string | null;
   cf_access_client_id: string | null;
   cf_access_client_secret: string | null;
+  credential_id?: number | null;
 }
 
 // ====== 行形状帮助类型：与 UserDBDO 内各 SELECT 列一一对应（配合 query<T> 消除逐处 as unknown as） ======
@@ -65,6 +66,8 @@ type ServerRow = {
   last_connected_at: number | null;
   created_at: string;
   updated_at: string;
+  credential_id: number | null;
+  credential_name: string | null;
 };
 type UserIdRow = { user_id: number };
 type LoginThrottleRow = { fail_count: number; locked_until: number; last_fail_at: number };
@@ -81,6 +84,7 @@ type ServerEditRow = {
   cf_tunnel_host: string | null;
   cf_access_client_id: string | null;
   cf_access_client_secret: string | null;
+  credential_id: number | null;
 };
 type ServerNameRow = { name: string };
 
@@ -147,6 +151,20 @@ export class UserDBDO {
   private one<T>(sql: string, ...params: unknown[]): T | null {
     const rows = this.query<T>(sql, ...params);
     return rows.length > 0 ? rows[0] : null;
+  }
+
+  private queryServers(whereSql: string, ...params: unknown[]): ServerRow[] {
+    return this.query<ServerRow>(
+      `SELECT s.id, s.user_id, s.name, s.host, s.port, s.username, s.auth_method, s.region, s.inferred_hint, s.tags, s.os, s.jump_server_id,
+              s.transport_type, s.cf_tunnel_host, s.cf_access_client_id,
+              (s.cf_access_client_secret IS NOT NULL AND s.cf_access_client_secret != '') AS has_cf_access_client_secret,
+              s.last_connected_at, s.created_at, s.updated_at,
+              s.credential_id, c.name AS credential_name
+       FROM servers s
+       LEFT JOIN saved_credentials c ON c.id = s.credential_id AND c.user_id = s.user_id
+       ${whereSql}`,
+      ...params
+    );
   }
 
   private initSchema(): void {
@@ -295,6 +313,19 @@ export class UserDBDO {
         locked_until  INTEGER NOT NULL DEFAULT 0,
         last_fail_at  INTEGER NOT NULL DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS saved_credentials (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        name        TEXT NOT NULL,
+        username    TEXT NOT NULL,
+        auth_method TEXT NOT NULL,
+        credential  TEXT NOT NULL,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_saved_credentials_user
+        ON saved_credentials(user_id, created_at DESC);
     `);
 
     const aiColumns = this.db.exec('PRAGMA table_info(ai_configs)').toArray();
@@ -337,6 +368,9 @@ export class UserDBDO {
     }
     if (!serverCols.some((c: any) => c.name === 'last_connected_at')) {
       this.db.exec('ALTER TABLE servers ADD COLUMN last_connected_at INTEGER DEFAULT NULL');
+    }
+    if (!serverCols.some((c: any) => c.name === 'credential_id')) {
+      this.db.exec('ALTER TABLE servers ADD COLUMN credential_id INTEGER DEFAULT NULL');
     }
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_servers_jump ON servers(jump_server_id)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_servers_last_connected ON servers(user_id, last_connected_at DESC)');
@@ -389,6 +423,22 @@ export class UserDBDO {
       }
       if (path === '/internal/session/delete' && request.method === 'POST') {
         return this.handleSessionDelete(request);
+      }
+
+      // --- 凭据库 ---
+      if (path === '/internal/credentials' && request.method === 'GET') {
+        const userId = Number(url.searchParams.get('user_id'));
+        if (!Number.isInteger(userId)) return Response.json({ error: 'Invalid user_id' }, { status: 400 });
+        return this.handleListCredentials(userId);
+      }
+      if (path === '/internal/credentials' && request.method === 'POST') {
+        return this.handleCreateCredential(request);
+      }
+      const credentialMatch = path.match(/^\/internal\/credentials\/(\d+)$/);
+      if (credentialMatch) {
+        const credentialId = parseInt(credentialMatch[1], 10);
+        if (request.method === 'PUT') return this.handleUpdateCredential(credentialId, request);
+        if (request.method === 'DELETE') return this.handleDeleteCredential(credentialId, request);
       }
 
       // --- 服务器 CRUD ---
@@ -837,13 +887,9 @@ export class UserDBDO {
   // ==================== 服务器 CRUD ====================
 
   private handleGetServers(userId: number): Response {
-    const rows = this.query<ServerRow>(
-      `SELECT id, user_id, name, host, port, username, auth_method, region, inferred_hint, tags, os, jump_server_id,
-              transport_type, cf_tunnel_host, cf_access_client_id,
-              (cf_access_client_secret IS NOT NULL AND cf_access_client_secret != '') AS has_cf_access_client_secret,
-              last_connected_at, created_at, updated_at
-       FROM servers WHERE user_id = ?
-       ORDER BY (last_connected_at IS NULL) ASC, last_connected_at DESC, updated_at DESC`,
+    const rows = this.queryServers(
+      `WHERE s.user_id = ?
+       ORDER BY (s.last_connected_at IS NULL) ASC, s.last_connected_at DESC, s.updated_at DESC`,
       userId
     );
 
@@ -897,6 +943,7 @@ export class UserDBDO {
       cf_tunnel_host?: string;
       cf_access_client_id?: string;
       cf_access_client_secret?: string;
+      credential_id?: number | null;
     }>();
 
     const port = body.port ?? 22;
@@ -906,7 +953,10 @@ export class UserDBDO {
     if (!AUTH_METHODS.has(body.auth_method)) {
       return Response.json({ error: '不支持的认证方式' }, { status: 400 });
     }
+    const linkedCredential = this.resolveLinkedCredential(body.user_id, body.credential_id, body.auth_method);
+    if (linkedCredential instanceof Response) return linkedCredential;
     if (
+      !linkedCredential &&
       body.auth_method !== 'none' &&
       (typeof body.credential !== 'string' ||
         (body.auth_method === 'publickey' && body.credential.length === 0))
@@ -968,9 +1018,11 @@ export class UserDBDO {
     // 下游节点或隧道连接不需要推断区域。
     const region = jumpServerId === null ? requestedRegion : null;
 
-    // none 不保存密码/私钥；沿用现有 NOT NULL 列，无需数据库迁移。
+    // none 与凭据库引用都不在服务器行保存一份明文副本。
     const encrypted =
-      body.auth_method === 'none' ? '' : await this.encryptCredential(body.credential, body.user_id);
+      linkedCredential || body.auth_method === 'none'
+        ? ''
+        : await this.encryptCredential(body.credential, body.user_id);
 
     // Auto 模式保存时一次性推断 locationHint，结果持久化入 inferred_hint 列
     // 手动区域已经能够直接决定调度，无需向 IPinfo 发送主机信息
@@ -1002,8 +1054,9 @@ export class UserDBDO {
       `INSERT INTO servers (
         user_id, name, host, port, username, credential, auth_method,
         region, inferred_hint, tags, jump_server_id,
-        transport_type, cf_tunnel_host, cf_access_client_id, cf_access_client_secret
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        transport_type, cf_tunnel_host, cf_access_client_id, cf_access_client_secret,
+        credential_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       body.user_id,
       body.name,
       body.host,
@@ -1018,18 +1071,12 @@ export class UserDBDO {
       transportType,
       cleanTunnelHost,
       cfAccessClientId,
-      encCfAccessClientSecret
+      encCfAccessClientSecret,
+      linkedCredential ? linkedCredential.id : null
     );
 
     // 获取新创建的记录
-    const rows = this.query<ServerRow>(
-      `SELECT id, user_id, name, host, port, username, auth_method, region, inferred_hint, tags, os, jump_server_id,
-              transport_type, cf_tunnel_host, cf_access_client_id,
-              (cf_access_client_secret IS NOT NULL AND cf_access_client_secret != '') AS has_cf_access_client_secret,
-              last_connected_at, created_at, updated_at
-       FROM servers WHERE user_id = ? ORDER BY id DESC LIMIT 1`,
-      body.user_id
-    );
+    const rows = this.queryServers('WHERE s.user_id = ? ORDER BY s.id DESC LIMIT 1', body.user_id);
 
     // DEBUG_MODE 开启时，在响应中附带调试信息
     const server = formatServerResponse(rows[0]);
@@ -1055,11 +1102,12 @@ export class UserDBDO {
       cf_tunnel_host?: string;
       cf_access_client_id?: string;
       cf_access_client_secret?: string | null;
+      credential_id?: number | null;
     }>();
 
     // 验证服务器属于该用户（行形状：user_id/host/port/auth_method/region/inferred_hint/jump_server_id/transport_type/cf_tunnel_host/cf_access_client_id/cf_access_client_secret）
     const existing = this.query<ServerEditRow>(
-      'SELECT user_id, host, port, auth_method, region, inferred_hint, jump_server_id, transport_type, cf_tunnel_host, cf_access_client_id, cf_access_client_secret FROM servers WHERE id = ?',
+      'SELECT user_id, host, port, auth_method, region, inferred_hint, jump_server_id, transport_type, cf_tunnel_host, cf_access_client_id, cf_access_client_secret, credential_id FROM servers WHERE id = ?',
       serverId
     );
     if (existing.length === 0) return Response.json({ error: 'Server not found' }, { status: 404 });
@@ -1071,20 +1119,31 @@ export class UserDBDO {
       return Response.json({ error: '不支持的认证方式' }, { status: 400 });
     }
     const nextAuthMethod = body.auth_method ?? current.auth_method;
+    const linkedCredential = this.resolveLinkedCredential(
+      body.user_id,
+      body.credential_id === undefined ? current.credential_id : body.credential_id,
+      nextAuthMethod
+    );
+    if (linkedCredential instanceof Response) return linkedCredential;
     // Omitted means keep the stored credential; '' is an explicit empty password.
     const hasNewCredential =
       typeof body.credential === 'string' &&
       (nextAuthMethod === 'password' || body.credential.length > 0);
-    if (nextAuthMethod !== 'none' && body.credential !== undefined && !hasNewCredential) {
+    const unlinkedVault = current.credential_id !== null && !linkedCredential && nextAuthMethod !== 'none';
+    if (!linkedCredential && nextAuthMethod !== 'none' && body.credential !== undefined && !hasNewCredential) {
       return Response.json({ error: '认证凭据不能为空' }, { status: 400 });
     }
     if (
+      !linkedCredential &&
       body.auth_method !== undefined &&
       body.auth_method !== current.auth_method &&
       nextAuthMethod !== 'none' &&
       !hasNewCredential
     ) {
       return Response.json({ error: '切换认证方式时必须同时提供对应凭据' }, { status: 400 });
+    }
+    if (unlinkedVault && !hasNewCredential) {
+      return Response.json({ error: '改为手动输入时必须填写密码或私钥' }, { status: 400 });
     }
     const nextJumpServerId =
       body.jump_server_id === undefined ? current.jump_server_id : body.jump_server_id;
@@ -1179,10 +1238,19 @@ export class UserDBDO {
       // 切换到 none 时删除旧凭据，不能在以后切回密码/私钥时复用。
       updates.push('credential = ?');
       values.push('');
+      updates.push('credential_id = ?');
+      values.push(null);
+    } else if (linkedCredential) {
+      updates.push('credential = ?');
+      values.push('');
+      updates.push('credential_id = ?');
+      values.push(linkedCredential.id);
     } else if (hasNewCredential) {
       const encrypted = await this.encryptCredential(body.credential!, body.user_id);
       updates.push('credential = ?');
       values.push(encrypted);
+      updates.push('credential_id = ?');
+      values.push(null);
     }
     if (body.auth_method !== undefined) {
       updates.push('auth_method = ?');
@@ -1270,14 +1338,7 @@ export class UserDBDO {
       this.db.exec(`UPDATE servers SET ${updates.join(', ')} WHERE id = ?`, ...values);
     }
 
-    const row = this.query<ServerRow>(
-      `SELECT id, user_id, name, host, port, username, auth_method, region, inferred_hint, tags, os, jump_server_id,
-              transport_type, cf_tunnel_host, cf_access_client_id,
-              (cf_access_client_secret IS NOT NULL AND cf_access_client_secret != '') AS has_cf_access_client_secret,
-              last_connected_at, created_at, updated_at
-       FROM servers WHERE id = ?`,
-      serverId
-    );
+    const row = this.queryServers('WHERE s.id = ?', serverId);
 
     return Response.json(formatServerResponse(row[0]));
   }
@@ -1701,6 +1762,223 @@ export class UserDBDO {
     return Response.json(config);
   }
 
+  private resolveLinkedCredential(
+    userId: number,
+    credentialId: number | null | undefined,
+    authMethod: string
+  ): { id: number } | null | Response {
+    if (credentialId === undefined || credentialId === null) return null;
+    if (!Number.isInteger(credentialId) || credentialId <= 0) {
+      return Response.json({ error: '无效的凭据' }, { status: 400 });
+    }
+    const saved = this.one<{ auth_method: string }>(
+      'SELECT auth_method FROM saved_credentials WHERE id = ? AND user_id = ?',
+      credentialId,
+      userId
+    );
+    if (!saved) return Response.json({ error: '凭据不存在' }, { status: 400 });
+    if (authMethod === 'none' || saved.auth_method !== authMethod) {
+      return Response.json({ error: '认证方式与所选凭据不一致' }, { status: 400 });
+    }
+    return { id: credentialId };
+  }
+
+  private async resolveServerAuth(
+    server: StoredServerRow,
+    userId: number
+  ): Promise<{ auth_method: string; credential: string } | Response> {
+    if (server.credential_id) {
+      const saved = this.one<{ auth_method: string; credential: string }>(
+        'SELECT auth_method, credential FROM saved_credentials WHERE id = ? AND user_id = ?',
+        server.credential_id,
+        userId
+      );
+      if (!saved) {
+        return Response.json({ error: '服务器引用的凭据不存在或已删除' }, { status: 409 });
+      }
+      const credential =
+        saved.auth_method === 'none' ? '' : await this.decryptCredential(saved.credential, userId);
+      return { auth_method: saved.auth_method, credential };
+    }
+    const credential =
+      server.auth_method === 'none' ? '' : await this.decryptCredential(server.credential, userId);
+    return { auth_method: server.auth_method, credential };
+  }
+
+  private static readonly MAX_SAVED_CREDENTIALS = 100;
+  private static readonly MAX_CREDENTIAL_NAME = 64;
+  private static readonly MAX_CREDENTIAL_USERNAME = 128;
+  private static readonly MAX_CREDENTIAL_SECRET = 64 * 1024;
+
+  private handleListCredentials(userId: number): Response {
+    const rows = this.query<{
+      id: number;
+      name: string;
+      username: string;
+      auth_method: string;
+      created_at: number;
+      updated_at: number;
+      server_count: number;
+    }>(
+      `SELECT c.id, c.name, c.username, c.auth_method, c.created_at, c.updated_at,
+              (SELECT COUNT(*) FROM servers s WHERE s.credential_id = c.id AND s.user_id = c.user_id) AS server_count
+       FROM saved_credentials c
+       WHERE c.user_id = ?
+       ORDER BY c.created_at DESC`,
+      userId
+    );
+    return Response.json(rows);
+  }
+
+  private validateCredentialInput(body: {
+    name?: string;
+    username?: string;
+    auth_method?: string;
+    credential?: string;
+  }, requireSecret: boolean): { name: string; username: string; auth_method: 'password' | 'publickey'; credential?: string } | Response {
+    const name = (body.name || '').trim();
+    const username = (body.username || '').trim();
+    const authMethod = body.auth_method;
+    if (!name || name.length > UserDBDO.MAX_CREDENTIAL_NAME) {
+      return Response.json({ error: '凭据名称不能为空，且不超过 64 个字符' }, { status: 400 });
+    }
+    if (!username || username.length > UserDBDO.MAX_CREDENTIAL_USERNAME) {
+      return Response.json({ error: '用户名不能为空，且不超过 128 个字符' }, { status: 400 });
+    }
+    if (authMethod !== 'password' && authMethod !== 'publickey') {
+      return Response.json({ error: '凭据只支持密码或私钥' }, { status: 400 });
+    }
+    if (requireSecret || typeof body.credential === 'string') {
+      if (typeof body.credential !== 'string' || body.credential.length === 0) {
+        return Response.json({ error: '密码或私钥不能为空' }, { status: 400 });
+      }
+      if (body.credential.length > UserDBDO.MAX_CREDENTIAL_SECRET) {
+        return Response.json({ error: '凭据内容过长' }, { status: 400 });
+      }
+    }
+    return {
+      name,
+      username,
+      auth_method: authMethod,
+      credential: typeof body.credential === 'string' ? body.credential : undefined,
+    };
+  }
+
+  private async handleCreateCredential(request: Request): Promise<Response> {
+    const body = await request.json<{
+      user_id: number;
+      name: string;
+      username: string;
+      auth_method: string;
+      credential: string;
+    }>();
+    const parsed = this.validateCredentialInput(body, true);
+    if (parsed instanceof Response) return parsed;
+    const count = this.one<{ n: number }>('SELECT COUNT(*) AS n FROM saved_credentials WHERE user_id = ?', body.user_id);
+    if ((count?.n ?? 0) >= UserDBDO.MAX_SAVED_CREDENTIALS) {
+      return Response.json({ error: '凭据数量已达上限' }, { status: 400 });
+    }
+    const now = Date.now();
+    const encrypted = await this.encryptCredential(parsed.credential || '', body.user_id);
+    this.db.exec(
+      `INSERT INTO saved_credentials (user_id, name, username, auth_method, credential, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      body.user_id,
+      parsed.name,
+      parsed.username,
+      parsed.auth_method,
+      encrypted,
+      now,
+      now
+    );
+    const created = this.one<{ id: number }>(
+      'SELECT id FROM saved_credentials WHERE user_id = ? ORDER BY id DESC LIMIT 1',
+      body.user_id
+    );
+    return Response.json({
+      id: created?.id,
+      name: parsed.name,
+      username: parsed.username,
+      auth_method: parsed.auth_method,
+      created_at: now,
+      updated_at: now,
+      server_count: 0,
+    }, { status: 201 });
+  }
+
+  private async handleUpdateCredential(credentialId: number, request: Request): Promise<Response> {
+    const body = await request.json<{
+      user_id: number;
+      name: string;
+      username: string;
+      auth_method: string;
+      credential?: string;
+    }>();
+    const current = this.one<{ user_id: number; auth_method: string }>(
+      'SELECT user_id, auth_method FROM saved_credentials WHERE id = ?',
+      credentialId
+    );
+    if (!current) return Response.json({ error: '凭据不存在' }, { status: 404 });
+    if (current.user_id !== body.user_id) return Response.json({ error: 'Forbidden' }, { status: 403 });
+    const changingMethod = body.auth_method !== current.auth_method;
+    const parsed = this.validateCredentialInput(body, changingMethod);
+    if (parsed instanceof Response) return parsed;
+    const now = Date.now();
+    if (parsed.credential !== undefined) {
+      const encrypted = await this.encryptCredential(parsed.credential, body.user_id);
+      this.db.exec(
+        `UPDATE saved_credentials
+         SET name = ?, username = ?, auth_method = ?, credential = ?, updated_at = ?
+         WHERE id = ?`,
+        parsed.name,
+        parsed.username,
+        parsed.auth_method,
+        encrypted,
+        now,
+        credentialId
+      );
+    } else {
+      this.db.exec(
+        `UPDATE saved_credentials SET name = ?, username = ?, auth_method = ?, updated_at = ? WHERE id = ?`,
+        parsed.name,
+        parsed.username,
+        parsed.auth_method,
+        now,
+        credentialId
+      );
+    }
+    const serverCount = this.one<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM servers WHERE credential_id = ? AND user_id = ?',
+      credentialId,
+      body.user_id
+    );
+    return Response.json({
+      id: credentialId,
+      name: parsed.name,
+      username: parsed.username,
+      auth_method: parsed.auth_method,
+      updated_at: now,
+      server_count: serverCount?.n ?? 0,
+    });
+  }
+
+  private async handleDeleteCredential(credentialId: number, request: Request): Promise<Response> {
+    const body = await request.json<{ user_id: number }>();
+    const current = this.one<{ user_id: number }>('SELECT user_id FROM saved_credentials WHERE id = ?', credentialId);
+    if (!current) return Response.json({ error: '凭据不存在' }, { status: 404 });
+    if (current.user_id !== body.user_id) return Response.json({ error: 'Forbidden' }, { status: 403 });
+    const used = this.one<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM servers WHERE credential_id = ? AND user_id = ?',
+      credentialId,
+      body.user_id
+    );
+    if ((used?.n ?? 0) > 0) {
+      return Response.json({ error: `仍有 ${used?.n} 台服务器在使用该凭据` }, { status: 409 });
+    }
+    this.db.exec('DELETE FROM saved_credentials WHERE id = ?', credentialId);
+    return Response.json({ success: true });
+  }
+
   // ==================== 用户自定义主题 ====================
 
   private handleGetTheme(userId: number): Response {
@@ -1853,16 +2131,20 @@ export class UserDBDO {
 
     const chain = reversed.reverse();
     const target = chain[chain.length - 1];
+    const materials = new Map<number, { auth_method: string; credential: string }>();
+    for (const server of chain) {
+      const material = await this.resolveServerAuth(server, body.user_id);
+      if (material instanceof Response) return material;
+      materials.set(server.id, material);
+    }
     const pathSegments: string[] = [];
     const resolved = await Promise.all(
       chain.map(async (server, index) => {
         const identity =
           index === 0 ? server.host : `jump:${pathSegments.join('>')}|${server.host}`;
         pathSegments.push(`${server.id}@${server.host}:${server.port}`);
-        const credential =
-          server.auth_method === 'none'
-            ? ''
-            : await this.decryptCredential(server.credential, body.user_id);
+        const material = materials.get(server.id)!;
+        const credential = material.credential;
         const khRows = this.query<FingerprintRow>(
           'SELECT fingerprint FROM known_hosts WHERE user_id = ? AND host = ? AND port = ?',
           body.user_id,
@@ -1873,6 +2155,7 @@ export class UserDBDO {
           server,
           identity,
           credential,
+          authMethod: material.auth_method,
           expectedFingerprint:
             khRows.length > 0 ? khRows[0].fingerprint : undefined,
         };
@@ -1898,12 +2181,12 @@ export class UserDBDO {
       host: node.server.host,
       port: node.server.port,
       username: node.server.username,
-      password: node.server.auth_method === 'password' ? node.credential : '',
+      password: node.authMethod === 'password' ? node.credential : '',
       authMethod:
-        node.server.auth_method === 'none'
+        node.authMethod === 'none'
           ? 'none'
-          : node.server.auth_method === 'publickey' ? 'publickey' : 'password',
-      privateKey: node.server.auth_method === 'publickey' ? node.credential : '',
+          : node.authMethod === 'publickey' ? 'publickey' : 'password',
+      privateKey: node.authMethod === 'publickey' ? node.credential : '',
       expectedFingerprint: node.expectedFingerprint,
       knownHostIdentity: node.identity,
     }));
@@ -1920,12 +2203,12 @@ export class UserDBDO {
       host: target.host,
       port: target.port,
       username: target.username,
-      password: target.auth_method === 'password' ? targetNode.credential : '',
+      password: targetNode.authMethod === 'password' ? targetNode.credential : '',
       authMethod:
-        target.auth_method === 'none'
+        targetNode.authMethod === 'none'
           ? 'none'
-          : target.auth_method === 'publickey' ? 'publickey' : 'password',
-      privateKey: target.auth_method === 'publickey' ? targetNode.credential : '',
+          : targetNode.authMethod === 'publickey' ? 'publickey' : 'password',
+      privateKey: targetNode.authMethod === 'publickey' ? targetNode.credential : '',
       expectedFingerprint: targetNode.expectedFingerprint,
       knownHostIdentity: targetNode.identity,
       userId: String(body.user_id),

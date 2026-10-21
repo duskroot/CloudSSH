@@ -57,7 +57,7 @@ test('replacement requests ignore stale output and stale completion', async ({ p
   expect(ids[0]).not.toBe(ids[1]);
 });
 
-for (const [locale, expected] of [['zh-CN', '模型响应未完成'], ['zh-TW', '模型回應未完成'], ['en-US', 'model response is incomplete']]) {
+for (const [locale, expected] of [['zh-CN', '模型响应未完成'], ['en-US', 'model response is incomplete']]) {
   test(`Responses failure is localized without leaking provider text (${locale})`, async ({ page }) => {
     await mount(page, locale);
     await page.evaluate(() => {
@@ -113,7 +113,6 @@ test('an auxiliary memory failure warns without removing the active task stream'
 
 for (const [locale, recovery, fallback, paused] of [
   ['zh-CN', '正在缩小输入', '本地执行事实', '安全暂停'],
-  ['zh-TW', '正在縮小輸入', '本機執行事實', '安全暫停'],
   ['en-US', 'Regenerating once', 'local execution facts', 'safely paused'],
 ]) {
   test(`checkpoint recovery, fallback and pause diagnostics are localized (${locale})`, async ({ page }) => {

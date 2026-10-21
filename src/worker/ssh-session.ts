@@ -235,6 +235,8 @@ export class SSHSession {
   private terminalContext: TerminalContext = new TerminalContext();
   private agentCore: AgentCore | null = null;
   private activeExecChannels: Map<number, AgentExecChannel> = new Map();
+  private interactiveShellReady = false;
+  private metricsSampleInFlight = false;
   private directTcpipStreams: Map<number, DirectTcpipStream> = new Map();
   private pendingDirectTcpip: Map<
     number,
@@ -2198,6 +2200,10 @@ export class SSHSession {
           this.ws.send(JSON.stringify({ type: 'pong', ...(id ? { id } : {}) }));
           return;
         }
+        if (parsed.type === 'host_metrics') {
+          void this.sampleHostMetrics();
+          return;
+        }
         if (parsed.type === 'resize') {
           this.recordUserActivity();
           await this.handleResize(parsed.cols, parsed.rows);
@@ -2860,6 +2866,7 @@ export class SSHSession {
         /* WebSocket 已关闭，忽略能力通告 */
       }
     }
+    this.interactiveShellReady = true;
     this.sendStatus('Shell 已就绪', 'shell_ready');
     if (this.config.sessionPolicy?.allowMetadataMutation !== false) {
       void this.detectRemoteOS();
@@ -3076,7 +3083,7 @@ export class SSHSession {
     }
 
     const locale =
-      requestedLocale === 'en-US' || requestedLocale === 'zh-TW' ? requestedLocale : 'zh-CN';
+      requestedLocale === 'en-US' ? requestedLocale : 'zh-CN';
     const timezone =
       typeof requestedTimezone === 'string' &&
       requestedTimezone.length > 0 &&
@@ -3157,12 +3164,52 @@ export class SSHSession {
     }
   }
 
+  private static readonly HOST_METRICS_COMMAND =
+    "sh -c 'cat /proc/stat; echo ---MEM---; cat /proc/meminfo; echo ---DISK---; df -P /'";
+
+  private async sampleHostMetrics(): Promise<void> {
+    if (
+      this.metricsSampleInFlight ||
+      this.closed ||
+      !this.interactiveShellReady ||
+      (this.state !== 'ready' && this.state !== 'rekey')
+    ) {
+      return;
+    }
+    this.metricsSampleInFlight = true;
+    try {
+      const result = await this.executeAgentCommand(
+        SSHSession.HOST_METRICS_COMMAND,
+        1200,
+        undefined,
+        false
+      );
+      if (this.closed) return;
+      this.ws.send(JSON.stringify({
+        type: 'host_metrics',
+        ok: result.exitCode === 0,
+        stdout: result.stdout.slice(0, 64 * 1024),
+      }));
+    } catch {
+      if (!this.closed) {
+        try {
+          this.ws.send(JSON.stringify({ type: 'host_metrics', ok: false }));
+        } catch {
+          // WebSocket 已关闭
+        }
+      }
+    } finally {
+      this.metricsSampleInFlight = false;
+    }
+  }
+
   private async executeAgentCommand(
     command: string,
     timeout: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    recordActivity = true
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    this.recordUserActivity();
+    if (recordActivity) this.recordUserActivity();
     const channelID = this.nextChannelID++;
     const channel = new SSHChannel(this.channelMaxPacketSize);
     this.channels.set(channelID, channel);
@@ -3189,42 +3236,37 @@ export class SSHSession {
 
       // Wait for result with timeout + abort
       let aborted = false;
-      const result = await Promise.race([
-        execCh.getClosedPromise(),
-        new Promise<{ stdout: string; stderr: string; exitCode: number }>((_, reject) => {
-          const timer = setTimeout(
-            () => reject(new Error(`Exec timeout after ${timeout}ms`)),
-            timeout
-          );
-          signal?.addEventListener(
-            'abort',
-            () => {
-              aborted = true;
-              clearTimeout(timer);
-              reject(new Error('Exec aborted'));
-            },
-            { once: true }
-          );
-        }),
-      ]);
-
-      // Cleanup: send EOF + CLOSE to server (RFC 4254 §5.3)
-      // Always attempt cleanup, even on abort, to prevent resource leaks
-      if (!channel.isClosed()) {
-        try {
-          await this.sendEncrypted(channel.buildEof());
-          await this.sendEncrypted(channel.buildClose());
-        } catch {
-          // Channel may already be closed by server, ignore
+      try {
+        return await Promise.race([
+          execCh.getClosedPromise(),
+          new Promise<{ stdout: string; stderr: string; exitCode: number }>((_, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error(`Exec timeout after ${timeout}ms`)),
+              timeout
+            );
+            signal?.addEventListener(
+              'abort',
+              () => {
+                aborted = true;
+                clearTimeout(timer);
+                reject(new Error('Exec aborted'));
+              },
+              { once: true }
+            );
+          }),
+        ]);
+      } finally {
+        // 每个 exec channel 只用一次。超时或中止也要发 CLOSE，避免通道泄漏。
+        if (!channel.isClosed()) {
+          try {
+            await this.sendEncrypted(channel.buildEof());
+            await this.sendEncrypted(channel.buildClose());
+          } catch {
+            // Channel may already be closed by server, ignore
+          }
         }
+        if (aborted) execCh.onClose();
       }
-
-      // If aborted, also close the exec channel to resolve any pending promises
-      if (aborted) {
-        execCh.onClose();
-      }
-
-      return result;
     } finally {
       // 无论成功、失败、超时或被中止，都必须清理 channel 引用，防止资源泄漏
       // （之前 waitForExecChannelOpen 超时 throw 会跳过清理，导致 execCh 残留在 activeExecChannels）
@@ -3499,6 +3541,7 @@ export class SSHSession {
   close(normal: boolean = false): void {
     if (this.closed) return;
     this.closed = true;
+    this.interactiveShellReady = false;
     this.packetParser.clear();
     this.versionRawBuffer = new Uint8Array(0);
     this.terminalOutputGuard.dispose();

@@ -142,7 +142,7 @@ test('空密码连接可进入交互认证，单个空响应及零提示轮次�
 });
 
 for (const [locale, hint] of [
-  ['zh-CN', '服务器还要求密码'], ['zh-TW', '伺服器還要求密碼'],
+  ['zh-CN', '服务器还要求密码'],
   ['en-US', 'also requires a password'],
 ]) {
   test(`公钥后 password 第二因素显式提交且不持久化 (${locale})`, async ({ page }) => {

@@ -22,7 +22,7 @@ export const KNOWLEDGE_VALUE_MAX_LENGTH = 512;
 
 export const VALID_KNOWLEDGE_CATEGORIES = ['credential', 'config', 'rule', 'note'] as const;
 export type KnowledgeCategory = (typeof VALID_KNOWLEDGE_CATEGORIES)[number];
-export type MemoryLocale = 'zh-CN' | 'zh-TW' | 'en-US';
+export type MemoryLocale = 'zh-CN' | 'en-US';
 
 export interface ServerWorkLog {
   id: number;
@@ -309,18 +309,12 @@ export function formatCurrentTimeAnchor(
   const ss = pad(parts.seconds);
 
   const daysZhCN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  const daysZhTW = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
   const daysEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const dayStr =
-    locale === 'en-US'
-      ? daysEn[parts.dayOfWeek]
-      : (locale === 'zh-TW' ? daysZhTW : daysZhCN)[parts.dayOfWeek];
+  const dayStr = (locale === 'en-US' ? daysEn : daysZhCN)[parts.dayOfWeek];
   const tzSuffix = timeZone
     ? locale === 'en-US'
       ? `, Timezone: ${timeZone}`
-      : locale === 'zh-TW'
-        ? `, 時區: ${timeZone}`
-        : `, 时区: ${timeZone}`
+      : `, 时区: ${timeZone}`
     : '';
 
   return `${y}-${m}-${d} ${hh}:${mm}:${ss} (${dayStr}${tzSuffix})`;
@@ -336,20 +330,12 @@ export function formatTimestampWithRelative(
   timeZone?: string
 ): string {
   const isEn = locale === 'en-US';
-  const relativeZh =
-    locale === 'zh-TW'
-      ? {
-          today: '今天',
-          yesterday: '昨天',
-          twoDaysAgo: '前天',
-          daysAgo: (days: number) => `${days} 天前`,
-        }
-      : {
-          today: '今天',
-          yesterday: '昨天',
-          twoDaysAgo: '前天',
-          daysAgo: (days: number) => `${days}天前`,
-        };
+  const relativeZh = {
+    today: '今天',
+    yesterday: '昨天',
+    twoDaysAgo: '前天',
+    daysAgo: (days: number) => `${days}天前`,
+  };
   const targetParts = getTimeParts(timestamp, timeZone);
   const baseParts = getTimeParts(baseTimestamp, timeZone);
 

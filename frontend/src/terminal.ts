@@ -29,6 +29,7 @@ import { currentTerminalFontSize } from './terminal-layout';
 import { localizedSSHMessage } from './terminal-status';
 import { TerminalOutputAck } from './terminal-output-ack';
 import { centerTerminalText } from './terminal-text';
+import { type CpuSample, type HostMetricValues, parseHostMetrics } from './host-metrics';
 import { getActiveTerminalTheme, onTerminalThemeChange } from './theme';
 import { confirmAction, notify } from './ui-feedback';
 
@@ -1161,6 +1162,12 @@ export class SSHTerminal {
             return;
           }
 
+          if (msg.type === 'host_metrics') {
+            this.hostMetricsInFlight = false;
+            if (msg.ok === true && typeof msg.stdout === 'string') this.applyHostMetrics(msg.stdout);
+            return;
+          }
+
           if (msg.type === 'session_created') {
             this.activeSessionId = typeof msg.sessionId === 'string' ? msg.sessionId : null;
             this.activeResumeToken = typeof msg.resumeToken === 'string' ? msg.resumeToken : null;
@@ -1193,6 +1200,7 @@ export class SSHTerminal {
               );
             this.onSessionReady?.();
             this.startHeartbeat();
+            this.startHostMetrics();
             return;
           }
 
@@ -1213,6 +1221,7 @@ export class SSHTerminal {
                 this.sessionReady = true;
                 this.reconnectAttempts = 0;
                 this.onSessionReady?.();
+                this.startHostMetrics();
               }
               break;
             case 'error':
@@ -1519,6 +1528,58 @@ export class SSHTerminal {
     this.imePendingHandled = false;
   }
 
+  private hostMetricsTimer: ReturnType<typeof setInterval> | null = null;
+  private hostMetricsInFlight = false;
+  private previousCpu: CpuSample | null = null;
+  private hostMetricValues: HostMetricValues = { cpu: null, memory: null, disk: null };
+
+  private startHostMetrics(): void {
+    if (this.hostMetricsTimer) return;
+    this.requestHostMetrics();
+    this.hostMetricsTimer = setInterval(() => this.requestHostMetrics(), 1500);
+  }
+
+  private stopHostMetrics(): void {
+    if (this.hostMetricsTimer) {
+      clearInterval(this.hostMetricsTimer);
+      this.hostMetricsTimer = null;
+    }
+    this.hostMetricsInFlight = false;
+    this.previousCpu = null;
+    this.hostMetricValues = { cpu: null, memory: null, disk: null };
+    if (this.container.style.display !== 'none') this.renderHostMetrics();
+  }
+
+  private requestHostMetrics(): void {
+    if (this.hostMetricsInFlight || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.sessionReady) {
+      return;
+    }
+    this.hostMetricsInFlight = true;
+    try {
+      this.ws.send(JSON.stringify({ type: 'host_metrics' }));
+    } catch {
+      this.hostMetricsInFlight = false;
+    }
+  }
+
+  private applyHostMetrics(stdout: string): void {
+    const parsed = parseHostMetrics(stdout, this.previousCpu);
+    if (parsed.cpu) this.previousCpu = parsed.cpu;
+    this.hostMetricValues = parsed.values;
+    if (this.container.style.display !== 'none') this.renderHostMetrics();
+  }
+
+  renderHostMetrics(): void {
+    const root = document.getElementById('host-metrics');
+    if (!root) return;
+    const visible = this.sessionReady && this.container.style.display !== 'none';
+    root.hidden = !visible;
+    if (!visible) return;
+    paintMetric('cpu', this.hostMetricValues.cpu);
+    paintMetric('mem', this.hostMetricValues.memory);
+    paintMetric('disk', this.hostMetricValues.disk);
+  }
+
   private startHeartbeat(): void {
     this.stopHeartbeat();
     if (document.visibilityState === 'hidden') return;
@@ -1685,6 +1746,7 @@ export class SSHTerminal {
     this.authChallengeDialog?.dismiss();
     this.finishMobileScroll();
     this.stopHeartbeat();
+    this.stopHostMetrics();
     this.clearReconnectTimeout();
     this.disposeConnectionDisposables();
     this.terminalOutputAck?.dispose();
@@ -1986,4 +2048,14 @@ export class SSHTerminal {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
+}
+
+function paintMetric(kind: 'cpu' | 'mem' | 'disk', value: number | null): void {
+  const bar = document.getElementById(`metric-${kind}-bar`);
+  const label = document.getElementById(`metric-${kind}-label`);
+  if (bar) {
+    bar.style.width = `${value === null ? 0 : value}%`;
+    bar.classList.toggle('is-high', value !== null && value >= 85);
+  }
+  if (label) label.textContent = value === null ? '—' : `${Math.round(value)}%`;
 }

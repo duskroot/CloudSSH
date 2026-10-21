@@ -149,13 +149,6 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
           >
             系统就绪，等待输入。
           </div>
-          <div class="mt-4 text-center">
-            <a
-              href="https://github.com/newbietan/CloudSSH"
-              class="text-[13px] text-primary opacity-60 hover:opacity-100 transition-colors tracking-widest uppercase"
-              >[ GitHub Open Source ]</a
-            >
-          </div>
         </main>
       </div>
 
@@ -192,7 +185,6 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
               <option value="standard-light">Standard Light</option>
               <option value="cyberpunk">Cyberpunk</option>
               <option value="liquid-glass">Liquid Glass</option>
-              <option value="__custom__" data-i18n="theme.custom">Custom</option>
             </select>
             <div data-language-switcher></div>
             <div id="user-info" class="flex items-center gap-3">
@@ -268,19 +260,38 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
           class="user-space-main flex-1 p-6 relative overflow-auto custom-scrollbar"
         >
           <div class="scanlines pointer-events-none"></div>
-          <div class="max-w-5xl mx-auto">
+          <div class="max-w-6xl mx-auto">
             <!-- 顶部操作栏 -->
             <div
               class="server-list-toolbar flex justify-between items-center mb-6"
             >
-              <div>
-                <h2
-                  class="text-lg font-bold text-primary tracking-[0.1em]"
-                  data-i18n="server.list"
-                >
-                  服务器列表
-                </h2>
+              <div class="min-w-0">
+                <div class="workspace-tabs flex items-center" role="tablist" aria-label="工作区">
+                  <button
+                    type="button"
+                    id="workspace-tab-servers"
+                    class="workspace-tab workspace-tab-active"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="server-workspace"
+                    data-i18n="server.list"
+                  >
+                    服务器列表
+                  </button>
+                  <button
+                    type="button"
+                    id="workspace-tab-credentials"
+                    class="workspace-tab"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="credential-workspace"
+                    data-i18n="credential.tab"
+                  >
+                    凭据管理
+                  </button>
+                </div>
                 <p
+                  id="workspace-subtitle"
                   class="text-xs text-muted opacity-60 mt-1"
                   data-i18n="server.manage"
                 >
@@ -316,8 +327,25 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                   >
                   <span data-i18n="server.add">添加服务器</span>
                 </button>
+                <button
+                  id="add-credential-btn"
+                  class="hidden cyber-button text-primary py-2 px-4 text-xs font-bold tracking-[0.1em] uppercase flex items-center gap-2"
+                >
+                  <span
+                    class="material-symbols-outlined"
+                    style="font-size: 16px"
+                    >add</span
+                  >
+                  <span data-i18n="credential.add">新建凭据</span>
+                </button>
               </div>
             </div>
+            <div id="server-workspace" class="flex items-start gap-6">
+            <aside id="server-group-sidebar" class="server-group-sidebar hidden shrink-0">
+              <div class="text-xs font-bold tracking-[0.08em] text-muted mb-3" data-i18n="server.tags">分组</div>
+              <div id="server-group-list" class="flex flex-col gap-1"></div>
+            </aside>
+            <div class="flex-1 min-w-0">
             <!-- 服务器搜索（仅在存在服务器时显示） -->
             <div id="server-search-wrapper" class="hidden mb-4">
               <div class="flex flex-col sm:flex-row gap-3">
@@ -357,20 +385,6 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                       >close</span
                     >
                   </button>
-                </div>
-                <div id="server-tag-filter-wrapper" class="hidden sm:w-44">
-                  <label
-                    for="server-tag-filter"
-                    class="sr-only"
-                    data-i18n="server.tagFilter"
-                    >按标签筛选</label
-                  >
-                  <select
-                    id="server-tag-filter"
-                    class="terminal-input text-[13px] w-full cursor-pointer"
-                    data-i18n-aria-label="server.tagFilter"
-                    aria-label="按标签筛选"
-                  ></select>
                 </div>
                 <div id="server-sort-wrapper" class="sm:w-40">
                   <label
@@ -485,6 +499,48 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                 <span data-i18n="server.addFirst">添加第一台服务器</span>
               </button>
             </div>
+            </div>
+            </div>
+            <div id="credential-workspace" class="hidden">
+              <div class="flex justify-end mb-4">
+                <div class="relative w-full max-w-xs">
+                  <label for="credential-search" class="sr-only" data-i18n="credential.searchLabel">搜索凭据</label>
+                  <span
+                    class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-dim pointer-events-none"
+                    style="font-size: 17px"
+                    aria-hidden="true"
+                    >search</span
+                  >
+                  <input
+                    id="credential-search"
+                    type="search"
+                    class="terminal-input text-[13px] w-full"
+                    style="padding-left: 36px"
+                    data-i18n-placeholder="credential.searchPlaceholder"
+                    placeholder="请输入凭据名称"
+                    autocomplete="off"
+                  />
+                </div>
+              </div>
+              <div class="credential-table-wrap border border-dim overflow-x-auto">
+                <table class="credential-table w-full text-left text-[13px]">
+                  <thead>
+                    <tr class="text-xs text-muted">
+                      <th data-i18n="credential.name">凭据名称</th>
+                      <th data-i18n="credential.username">用户名</th>
+                      <th data-i18n="credential.type">凭据类型</th>
+                      <th data-i18n="credential.created">创建时间</th>
+                      <th data-i18n="credential.actions">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="credential-table-body"></tbody>
+                </table>
+              </div>
+              <div id="credential-empty" class="hidden flex-col items-center justify-center py-16">
+                <p class="text-muted text-sm tracking-[0.08em] mb-2" data-i18n="credential.empty">还没有保存的凭据</p>
+                <p class="text-dim text-xs" data-i18n="credential.emptyHint">保存一次后，添加服务器时可以直接选用</p>
+              </div>
+            </div>
           </div>
         </main>
 
@@ -495,19 +551,16 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
           <div
             class="user-space-footer-source text-secondary-container opacity-60"
           >
-            © <span id="user-copyright-year"></span> CLOUD_SSH_TERMINAL<span
-              class="user-space-footer-url"
-            >
-              - https://github.com/newbietan/CloudSSH</span
-            >
+            © <span id="user-copyright-year"></span> CLOUD_SSH_TERMINAL
           </div>
           <div class="flex gap-4">
-            <a
-              class="text-on-surface-variant opacity-60 hover:opacity-100 transition-opacity"
-              href="https://github.com/newbietan/CloudSSH"
+            <button
+              type="button"
+              class="text-on-surface-variant opacity-60"
               data-i18n="common.documentation"
-              >文档</a
             >
+              文档
+            </button>
           </div>
         </footer>
       </div>
@@ -549,7 +602,26 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
               >
             </button>
           </div>
-          <form id="server-form" class="space-y-4">
+          <form id="server-form">
+            <div class="server-form-tabs" role="tablist">
+              <button
+                type="button"
+                id="server-form-tab-basic"
+                class="server-form-tab server-form-tab-active"
+                data-i18n="server.formBasic"
+              >
+                基础配置
+              </button>
+              <button
+                type="button"
+                id="server-form-tab-advanced"
+                class="server-form-tab"
+                data-i18n="server.formAdvanced"
+              >
+                高级配置
+              </button>
+            </div>
+            <div id="server-form-basic" class="space-y-4">
             <div>
               <label
                 for="server-name"
@@ -593,31 +665,6 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                 data-i18n="server.tagsHint"
               >
                 使用逗号分隔，最多 10 个标签
-              </div>
-            </div>
-            <div>
-              <label
-                class="block text-xs font-bold tracking-[0.1em] text-muted mb-2"
-                data-i18n="server.transportMode"
-                >网络连接</label
-              >
-              <div class="flex gap-2 mb-1">
-                <button
-                  type="button"
-                  id="modal-transport-tab-direct"
-                  class="auth-tab auth-tab-active px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
-                  data-i18n="server.transportDirect"
-                >
-                  直连 / 跳板机
-                </button>
-                <button
-                  type="button"
-                  id="modal-transport-tab-tunnel"
-                  class="auth-tab px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
-                  data-i18n="server.transportTunnel"
-                >
-                  Cloudflare 隧道
-                </button>
               </div>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -684,6 +731,162 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                   type="text"
                   required
                 />
+              </div>
+            </div>
+            <div>
+              <label
+                class="block text-xs font-bold tracking-[0.1em] text-muted mb-2"
+                data-i18n="auth.method"
+                >认证方式</label
+              >
+              <div class="flex flex-wrap gap-2 mb-3">
+                <button
+                  type="button"
+                  id="modal-auth-tab-credential"
+                  class="auth-tab px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
+                  data-i18n="server.credentialOnCard"
+                >
+                  凭据
+                </button>
+                <button
+                  type="button"
+                  id="modal-auth-tab-password"
+                  class="auth-tab auth-tab-active px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
+                  data-i18n="common.password"
+                >
+                  密码
+                </button>
+                <button
+                  type="button"
+                  id="modal-auth-tab-key"
+                  class="auth-tab px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
+                  data-i18n="common.privateKey"
+                >
+                  私钥
+                </button>
+                <button
+                  type="button"
+                  id="modal-auth-tab-none"
+                  class="auth-tab px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
+                  data-i18n="auth.none"
+                ></button>
+              </div>
+              <div id="modal-credential-section" style="display: none">
+                <select
+                  id="server-saved-credential"
+                  class="terminal-input text-[13px] w-full cursor-pointer"
+                >
+                  <option value="" data-i18n="server.pickCredential">请选择凭据</option>
+                </select>
+                <p
+                  id="server-saved-credential-hint"
+                  class="hidden text-xs text-muted mt-2"
+                  data-i18n="server.savedCredentialHint"
+                >
+                  连接时使用这份凭据，不用再次填写密码或私钥。
+                </p>
+              </div>
+              <p id="modal-none-section" class="text-xs text-muted" style="display: none" data-i18n="auth.noneHint"></p>
+              <div id="modal-password-section">
+                <div class="flex items-center">
+                  <span
+                    class="material-symbols-outlined text-muted mr-2"
+                    style="font-size: 16px"
+                    >key</span
+                  >
+                  <input
+                    id="server-password"
+                    class="terminal-input text-[13px]"
+                    placeholder="••••••••"
+                    type="password"
+                    data-i18n-aria-label="common.password"
+                    aria-label="密码"
+                    aria-describedby="server-password-hint"
+                  />
+                </div>
+                <p id="server-password-hint" class="text-xs text-muted mt-2" data-i18n="auth.passwordHint"></p>
+                <div id="server-empty-password-option" class="hidden mt-2">
+                  <label class="flex items-center gap-2 text-xs text-muted cursor-pointer">
+                    <input id="server-empty-password" type="checkbox" class="accent-[var(--accent)] w-4 h-4" />
+                    <span data-i18n="server.useEmptyPassword"></span>
+                  </label>
+                </div>
+              </div>
+              <div id="modal-key-section" style="display: none">
+                <textarea
+                  id="server-private-key"
+                  class="terminal-input text-[11px] w-full"
+                  rows="4"
+                  data-i18n-placeholder="auth.keyPlaceholder"
+                  data-i18n-aria-label="common.privateKey"
+                  aria-label="私钥"
+                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...粘贴私钥内容...&#10;-----END OPENSSH PRIVATE KEY-----"
+                  style="
+                    resize: vertical;
+                    border: 1px solid var(--border-strong);
+                    padding: 8px;
+                  "
+                ></textarea>
+              </div>
+            </div>
+            <div id="server-region-section">
+              <label
+                for="server-region"
+                class="block text-xs font-bold tracking-[0.1em] text-muted mb-2"
+                data-i18n="auth.regionHint"
+                >连接区域</label
+              >
+              <select
+                id="server-region"
+                class="terminal-input text-[13px] cursor-pointer"
+                aria-describedby="server-region-inferred"
+                style="
+                  border: 1px solid var(--border-strong);
+                  border-bottom: 1px solid var(--border-strong);
+                  padding: 6px 8px;
+                "
+              >
+                <option value="" data-i18n="region.auto">
+                  自动（保存时由系统推断）
+                </option>
+              </select>
+              <div
+                id="server-region-inferred"
+                class="text-[10px] text-muted mt-1"
+              ></div>
+              <div
+                id="server-region-tunnel-hint"
+                class="hidden text-[10px] text-muted mt-1"
+                data-i18n="server.tunnelRegionHint"
+              >
+                建议手动选择离内网主机物理位置最近的区域以降低隧道延迟；选择自动将由连接时的接入点决定
+              </div>
+            </div>
+            </div>
+            <div id="server-form-advanced" class="hidden space-y-4">
+            <div>
+              <label
+                class="block text-xs font-bold tracking-[0.1em] text-muted mb-2"
+                data-i18n="server.transportMode"
+                >网络连接</label
+              >
+              <div class="flex gap-2 mb-1">
+                <button
+                  type="button"
+                  id="modal-transport-tab-direct"
+                  class="auth-tab auth-tab-active px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
+                  data-i18n="server.transportDirect"
+                >
+                  直连 / 跳板机
+                </button>
+                <button
+                  type="button"
+                  id="modal-transport-tab-tunnel"
+                  class="auth-tab px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
+                  data-i18n="server.transportTunnel"
+                >
+                  Cloudflare 隧道
+                </button>
               </div>
             </div>
             <div id="server-jump-host-section">
@@ -778,111 +981,6 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                 若在 Cloudflare Zero Trust 中为该域名开启了 Access 策略，需填入 Service Token
               </div>
             </div>
-            <div>
-              <label
-                class="block text-xs font-bold tracking-[0.1em] text-muted mb-2"
-                data-i18n="auth.method"
-                >认证方式</label
-              >
-              <div class="flex gap-2 mb-3">
-                <button
-                  type="button"
-                  id="modal-auth-tab-password"
-                  class="auth-tab auth-tab-active px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
-                  data-i18n="common.password"
-                >
-                  密码
-                </button>
-                <button
-                  type="button"
-                  id="modal-auth-tab-key"
-                  class="auth-tab px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
-                  data-i18n="common.privateKey"
-                >
-                  私钥
-                </button>
-                <button
-                  type="button"
-                  id="modal-auth-tab-none"
-                  class="auth-tab px-3 py-1 text-[11px] font-bold tracking-[0.1em] cursor-pointer transition-all"
-                  data-i18n="auth.none"
-                ></button>
-              </div>
-              <p id="modal-none-section" class="text-xs text-muted" style="display: none" data-i18n="auth.noneHint"></p>
-              <div id="modal-password-section">
-                <div class="flex items-center">
-                  <span
-                    class="material-symbols-outlined text-muted mr-2"
-                    style="font-size: 16px"
-                    >key</span
-                  >
-                  <input
-                    id="server-password"
-                    class="terminal-input text-[13px]"
-                    placeholder="••••••••"
-                    type="password"
-                    data-i18n-aria-label="common.password"
-                    aria-label="密码"
-                    aria-describedby="server-password-hint"
-                  />
-                </div>
-                <p id="server-password-hint" class="text-xs text-muted mt-2" data-i18n="auth.passwordHint"></p>
-                <div id="server-empty-password-option" class="hidden mt-2">
-                  <label class="flex items-center gap-2 text-xs text-muted cursor-pointer">
-                    <input id="server-empty-password" type="checkbox" class="accent-[var(--accent)] w-4 h-4" />
-                    <span data-i18n="server.useEmptyPassword"></span>
-                  </label>
-                </div>
-              </div>
-              <div id="modal-key-section" style="display: none">
-                <textarea
-                  id="server-private-key"
-                  class="terminal-input text-[11px] w-full"
-                  rows="4"
-                  data-i18n-placeholder="auth.keyPlaceholder"
-                  data-i18n-aria-label="common.privateKey"
-                  aria-label="私钥"
-                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...粘贴私钥内容...&#10;-----END OPENSSH PRIVATE KEY-----"
-                  style="
-                    resize: vertical;
-                    border: 1px solid var(--border-strong);
-                    padding: 8px;
-                  "
-                ></textarea>
-              </div>
-            </div>
-            <div id="server-region-section">
-              <label
-                for="server-region"
-                class="block text-xs font-bold tracking-[0.1em] text-muted mb-2"
-                data-i18n="auth.regionHint"
-                >连接区域</label
-              >
-              <select
-                id="server-region"
-                class="terminal-input text-[13px] cursor-pointer"
-                aria-describedby="server-region-inferred"
-                style="
-                  border: 1px solid var(--border-strong);
-                  border-bottom: 1px solid var(--border-strong);
-                  padding: 6px 8px;
-                "
-              >
-                <option value="" data-i18n="region.auto">
-                  自动（保存时由系统推断）
-                </option>
-              </select>
-              <div
-                id="server-region-inferred"
-                class="text-[10px] text-muted mt-1"
-              ></div>
-              <div
-                id="server-region-tunnel-hint"
-                class="hidden text-[10px] text-muted mt-1"
-                data-i18n="server.tunnelRegionHint"
-              >
-                建议手动选择离内网主机物理位置最近的区域以降低隧道延迟；选择自动将由连接时的接入点决定
-              </div>
             </div>
             <div class="pt-2">
               <button
@@ -895,6 +993,63 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                 >
                 <span data-i18n="server.save">保存服务器</span>
               </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div
+        id="credential-modal"
+        class="responsive-modal hidden fixed inset-0 z-[100] flex items-center justify-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="credential-modal-title"
+      >
+        <div class="modal-overlay absolute inset-0" id="credential-modal-backdrop"></div>
+        <div class="responsive-modal-panel cyber-box p-6 shadow-2xl relative z-10 w-full max-w-md mx-4">
+          <div class="flex items-center justify-between mb-6 pb-4 border-b border-dim">
+            <span id="credential-modal-title" class="text-sm font-bold tracking-[0.04em]">新建凭据</span>
+            <button id="credential-modal-close" type="button" class="panel-close-btn" data-i18n-aria-label="common.close" aria-label="关闭">
+              <span class="material-symbols-outlined" style="font-size: 18px">close</span>
+            </button>
+          </div>
+          <form id="credential-form" class="space-y-4">
+            <div>
+              <span class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="credential.type">凭据类型</span>
+              <div class="grid grid-cols-2 gap-2">
+                <button type="button" id="credential-type-password" class="auth-tab auth-tab-active px-3 py-2 text-[12px]" data-i18n="credential.password">密码托管</button>
+                <button type="button" id="credential-type-key" class="auth-tab px-3 py-2 text-[12px]" data-i18n="credential.publickey">密钥托管</button>
+              </div>
+            </div>
+            <div>
+              <label for="credential-name" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="credential.name">凭据名称</label>
+              <input id="credential-name" class="terminal-input text-[13px] w-full" maxlength="64" data-i18n-placeholder="credential.namePlaceholder" placeholder="请输入凭据名称" autocomplete="off" />
+            </div>
+            <div>
+              <label for="credential-username" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="credential.username">用户名</label>
+              <input id="credential-username" class="terminal-input text-[13px] w-full" maxlength="128" data-i18n-placeholder="credential.usernamePlaceholder" placeholder="请输入用户名称" autocomplete="off" />
+            </div>
+            <div id="credential-password-section">
+              <label for="credential-password" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="common.password">密码</label>
+              <input id="credential-password" class="terminal-input text-[13px] w-full" type="password" data-i18n-placeholder="credential.passwordPlaceholder" placeholder="请输入密码" autocomplete="new-password" />
+            </div>
+            <div id="credential-key-section" class="hidden space-y-3">
+              <label for="credential-key" class="block text-xs font-bold tracking-[0.1em] text-muted" data-i18n="common.privateKey">私钥</label>
+              <textarea id="credential-key" class="terminal-input text-[11px] w-full" rows="4" data-i18n-placeholder="credential.keyPlaceholder" placeholder="输入密钥内容"></textarea>
+              <label class="text-[12px] text-muted hover:text-primary cursor-pointer inline-flex items-center gap-1">
+                <span class="material-symbols-outlined" style="font-size: 16px">upload</span>
+                <span data-i18n="credential.chooseFile">选择密钥文件</span>
+                <input id="credential-key-file" type="file" accept=".pem,.key,.txt" class="hidden" />
+              </label>
+              <div>
+                <label for="credential-passphrase" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="credential.passphrase">密钥口令</label>
+                <input id="credential-passphrase" class="terminal-input text-[13px] w-full" type="password" data-i18n-placeholder="credential.passphrasePlaceholder" placeholder="私钥已加密时填写" autocomplete="new-password" />
+              </div>
+            </div>
+            <p id="credential-keep-hint" class="hidden text-xs text-muted" data-i18n="credential.keepSecret">留空则保留已保存的密码或私钥</p>
+            <div class="flex justify-end gap-3 pt-2">
+              <button type="button" id="credential-cancel-btn" class="cyber-button px-4 py-2 text-xs" data-i18n="common.cancel">取消</button>
+              <button type="submit" id="credential-submit-btn" class="cyber-button text-primary px-4 py-2 text-xs font-bold" data-i18n="common.confirm">确定</button>
             </div>
           </form>
         </div>
@@ -930,14 +1085,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
               <option value="standard-light">Standard Light</option>
               <option value="cyberpunk">Cyberpunk</option>
               <option value="liquid-glass">Liquid Glass</option>
-              <option value="__custom__" data-i18n="theme.custom">Custom</option>
             </select>
-            <input
-              type="file"
-              id="import-theme-input"
-              accept=".json"
-              class="hidden"
-            />
             <div id="terminal-drawer-segmented-bar" class="desktop-terminal-action drawer-segmented-bar" role="tablist" aria-label="抽屉功能切换">
               <div class="drawer-segmented-lens"></div>
               <button
@@ -973,6 +1121,23 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                   >terminal</span
                 >
                 <span class="drawer-btn-label" data-i18n="terminal.drawer.snippets">自定义命令</span>
+              </button>
+              <button
+                id="tools-toggle-btn"
+                type="button"
+                role="tab"
+                class="drawer-segmented-btn"
+                aria-selected="false"
+                data-drawer="tools"
+                data-i18n-title="tools.title"
+                title="工具"
+              >
+                <span
+                  class="material-symbols-outlined drawer-btn-icon"
+                  style="font-variation-settings: 'FILL' 0"
+                  >construction</span
+                >
+                <span class="drawer-btn-label" data-i18n="terminal.drawer.tools">工具</span>
               </button>
               <button
                 id="agent-toggle-btn"
@@ -1059,7 +1224,6 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                 <option value="standard-light">Standard Light</option>
                 <option value="cyberpunk">Cyberpunk</option>
                 <option value="liquid-glass">Liquid Glass</option>
-                <option value="__custom__" data-i18n="theme.custom">Custom</option>
               </select>
             </label>
             <button id="mobile-search-btn" type="button">
@@ -1076,6 +1240,11 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
               <span class="material-symbols-outlined" aria-hidden="true"
                 >keyboard</span
               ><span data-i18n="mobileShortcuts.title">自定义快捷键</span>
+            </button>
+            <button id="mobile-tools-btn" type="button">
+              <span class="material-symbols-outlined" aria-hidden="true"
+                >construction</span
+              ><span data-i18n="terminal.drawer.tools">工具</span>
             </button>
             <button id="mobile-sftp-btn" type="button">
               <span class="material-symbols-outlined" aria-hidden="true"
@@ -1154,6 +1323,23 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                   >用户：-</span
                 >
                 <span id="term-port">端口：-</span>
+              </div>
+              <div id="host-metrics" class="host-metrics" hidden>
+                <div class="host-metric">
+                  <span data-i18n="metrics.cpu">CPU</span>
+                  <div class="host-metric-track"><div id="metric-cpu-bar" class="host-metric-bar"></div></div>
+                  <span id="metric-cpu-label">—</span>
+                </div>
+                <div class="host-metric">
+                  <span data-i18n="metrics.memory">内存</span>
+                  <div class="host-metric-track"><div id="metric-mem-bar" class="host-metric-bar"></div></div>
+                  <span id="metric-mem-label">—</span>
+                </div>
+                <div class="host-metric">
+                  <span data-i18n="metrics.disk">磁盘</span>
+                  <div class="host-metric-track"><div id="metric-disk-bar" class="host-metric-bar"></div></div>
+                  <span id="metric-disk-label">—</span>
+                </div>
               </div>
               <div>
                 <span id="term-info"></span>
@@ -1294,16 +1480,16 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
           class="terminal-footer px-6 py-0 flex justify-between items-center z-50 bg-elevated border-t border-outline-variant text-xs h-8 shrink-0"
         >
           <div class="text-secondary-container opacity-60">
-            © <span id="copyright-year"></span> CLOUD_SSH_TERMINAL -
-            https://github.com/newbietan/CloudSSH
+            © <span id="copyright-year"></span> CLOUD_SSH_TERMINAL
           </div>
           <div class="flex gap-4">
-            <a
-              class="text-on-surface-variant opacity-60 hover:opacity-100 transition-opacity"
-              href="https://github.com/newbietan/CloudSSH"
+            <button
+              type="button"
+              class="text-on-surface-variant opacity-60"
               data-i18n="common.documentation"
-              >文档</a
             >
+              文档
+            </button>
           </div>
         </footer>
       </div>

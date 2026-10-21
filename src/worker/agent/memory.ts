@@ -215,7 +215,7 @@ export class AgentMemoryManager {
       batch.workLog.summary = boundedText(`Unknown operations: ${unknown.length}. Inspect before retrying. ${unknown.map(op => String(op.operation)).join('; ')}`, 300);
     }
     if (job.interrupted && batch.workLog) {
-      const prefix = job.locale === 'en-US' ? '[Interrupted] ' : job.locale === 'zh-TW' ? '[已中斷] ' : '[已中断] ';
+      const prefix = job.locale === 'en-US' ? '[Interrupted] ' : '[已中断] ';
       batch.workLog.title = `${prefix}${batch.workLog.title}`.slice(0, WORK_LOG_TITLE_MAX_LENGTH);
     }
     const successful = job.records.filter(record => record.role === 'tool' && record.status === 'succeeded').map(record => record.content).join('\n');

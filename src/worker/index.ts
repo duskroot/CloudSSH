@@ -219,6 +219,10 @@ export default {
         return handleServersRoute(request, url, env);
       }
 
+      if (url.pathname === '/api/credentials' || url.pathname.startsWith('/api/credentials/')) {
+        return handleCredentialsRoute(request, url, env);
+      }
+
       // ==================== Theme Routes（登录用户跨环境同步） ====================
 
       if (url.pathname === '/api/user/theme') {
@@ -385,6 +389,53 @@ export default {
     }
   },
 };
+
+// ==================== Saved credential routes ====================
+
+async function handleCredentialsRoute(request: Request, url: URL, env: Env): Promise<Response> {
+  const user = await getAuthenticatedUser(request, env);
+  if (!user) {
+    return Response.json({ error: 'Authentication required' }, { status: 401 });
+  }
+  const stub = getUserDBStub(env, user.github_id);
+
+  if (url.pathname === '/api/credentials' && request.method === 'GET') {
+    return stub.fetch(new Request(`http://internal/internal/credentials?user_id=${user.id}`));
+  }
+  if (url.pathname === '/api/credentials' && request.method === 'POST') {
+    const body = await request.json<Record<string, unknown>>();
+    body.user_id = user.id;
+    return stub.fetch(
+      new Request('http://internal/internal/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    );
+  }
+  const match = url.pathname.match(/^\/api\/credentials\/(\d+)$/);
+  if (match && request.method === 'PUT') {
+    const body = await request.json<Record<string, unknown>>();
+    body.user_id = user.id;
+    return stub.fetch(
+      new Request(`http://internal/internal/credentials/${match[1]}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    );
+  }
+  if (match && request.method === 'DELETE') {
+    return stub.fetch(
+      new Request(`http://internal/internal/credentials/${match[1]}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id }),
+      })
+    );
+  }
+  return Response.json({ error: 'Not found' }, { status: 404 });
+}
 
 // ==================== Server management routes ====================
 

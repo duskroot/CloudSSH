@@ -1997,6 +1997,104 @@ html[data-ui-motion='none'] .auth-aurora::after {
   border-color: var(--accent) !important;
 }
 
+.workspace-tabs {
+  gap: 8px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.workspace-tab {
+  background: transparent;
+  color: var(--text-muted, var(--muted));
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  min-width: 6.5em;
+  margin-bottom: -1px;
+  padding: 8px 4px 10px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  cursor: pointer;
+}
+
+.workspace-tab-active {
+  background: transparent;
+  color: var(--text-primary, var(--on-surface));
+  border-bottom-color: currentColor;
+}
+
+.server-group-sidebar {
+  width: 168px;
+}
+
+.server-group-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--control-radius, 6px);
+  background: transparent;
+  color: var(--text-muted, var(--muted));
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.server-group-item:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.server-group-item-active {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+.server-form-tabs {
+  display: flex;
+  gap: 28px;
+  border-bottom: 1px solid var(--border-strong);
+  margin-bottom: 16px;
+}
+
+.server-form-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 8px 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-muted, var(--muted));
+  cursor: pointer;
+}
+
+.server-form-tab-active {
+  color: var(--text-primary, var(--on-surface));
+  border-bottom-color: currentColor;
+}
+
+.credential-table th,
+.credential-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-dim, var(--border-strong));
+  vertical-align: middle;
+}
+
+.credential-table th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+}
+
+.credential-type-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #22c55e;
+  display: inline-block;
+}
+
 /* ==================== Terminal Search Box ==================== */
 
 .cloudssh-search-box {
@@ -3148,7 +3246,7 @@ html[data-ui-style="liquid"] :is(.app-dialog__panel, .remote-editor__panel, .aut
   box-shadow: var(--shadow-modal);
 }
 
-html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel) {
+html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel) {
   background: color-mix(in srgb, var(--bg-surface) 15%, rgba(255, 255, 255, 0.78));
   -webkit-backdrop-filter: blur(32px) saturate(200%) contrast(115%) brightness(106%);
   backdrop-filter: blur(32px) saturate(200%) contrast(115%) brightness(106%);
@@ -3159,7 +3257,7 @@ html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel) {
 }
 
 /* 三大抽屉面板统一高光微透明 Header */
-html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel) :is(.agent-panel-header, .sftp-panel-header) {
+html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel) :is(.agent-panel-header, .sftp-panel-header) {
   background: color-mix(in srgb, var(--bg-surface) 25%, rgba(255, 255, 255, 0.5));
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -3349,6 +3447,44 @@ html[data-ui-style="liquid"] #terminal-wrapper {
   padding: 6px 12px; /* 适当收窄内边距，大幅减少四周多余留白 */
 }
 
+.host-metrics {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 280px;
+  justify-content: flex-end;
+}
+
+.host-metric {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 72px;
+  flex: 0 1 140px;
+  font-size: 11px;
+}
+
+.host-metric-track {
+  flex: 1 1 auto;
+  height: 6px;
+  min-width: 36px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 70%, transparent);
+  overflow: hidden;
+}
+
+.host-metric-bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.host-metric-bar.is-high {
+  background: var(--error, #e11d48);
+}
+
 html[data-ui-style="liquid"] .terminal-status-bar {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   padding-bottom: 4px;
@@ -3410,11 +3546,8 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
 
 /* ========== Agent Panel ========== */
 
-/* 三大侧边抽屉（SFTP / 自定义命令 / AI Agent）共用同一几何尺寸。
-   此前宽度由各模块内联 style 各自声明（SFTP/Agent 为 420–600px，
-   自定义命令为 440–680px），导致同一屏幕下抽屉宽度明显不一致；
-   现集中收敛到此处唯一来源，内联宽度已移除。 */
-:is(#agent-panel, #sftp-panel, #snippet-panel) {
+/* 侧边抽屉共用同一几何尺寸。 */
+:is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel) {
   width: min(clamp(420px, 40vw, 600px), 100vw);
   max-width: 100vw;
   min-width: 0;
@@ -3427,7 +3560,8 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
 }
 
 /* 自定义命令抽屉的遮罩同样让出顶栏，否则它会吃掉顶栏切换器的点击。 */
-#snippet-panel-backdrop {
+#snippet-panel-backdrop,
+#tools-panel-backdrop {
   top: var(--drawer-top);
 }
 
@@ -4908,7 +5042,8 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
   /* 自定义命令抽屉此前缺少移动端规则，在触屏平板下会按桌面公式停在 420px，
      与同为非 Agent 抽屉的 SFTP 不一致；此处对齐 SFTP 的全视口行为。
      内联宽度已移除，故无需 !important 即可生效。 */
-  #snippet-panel {
+  #snippet-panel,
+  #tools-panel {
     width: 100vw;
     max-width: 100vw;
     height: var(--visual-viewport-height);

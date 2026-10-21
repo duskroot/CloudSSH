@@ -4,6 +4,7 @@ import { ConnectionForm } from './auth-form';
 import { initI18n, onLocaleChange, t } from './i18n';
 import { MobileTerminalController } from './mobile-terminal';
 import { MobileShortcutsManager } from './mobile-shortcuts-manager';
+import { CredentialManager } from './credential-manager';
 import { ServerList } from './server-list';
 import {
   type ClaimedShare,
@@ -12,19 +13,16 @@ import {
   takeShareTokenFromLocation,
 } from './share-session';
 import { SnippetManager } from './snippet-manager';
+import { ToolsDrawer } from './tools-drawer';
 import { TabManager } from './tab-manager';
 import type { SSHHostInfo, SSHTerminal } from './terminal';
 import {
   applyBuiltInTheme,
-  applyImportedTheme,
   type BuiltInThemeName,
   isBuiltInTheme,
-  normalizeImportedTheme,
-  THEME_MAX_BYTES,
 } from './theme';
 import { LiquidSegmentedThemeControl } from './theme-segmented';
 import { LiquidSegmentedDrawerControl } from './drawer-segmented';
-import { customThemeModal, customThemeStore } from './custom-theme-manager';
 import { notify } from './ui-feedback';
 
 // ==================== 全局状态 ====================
@@ -32,6 +30,7 @@ import { notify } from './ui-feedback';
 let tabManager: TabManager | null = null;
 let connectionForm: ConnectionForm | null = null;
 let serverList: ServerList | null = null;
+let credentialManager: CredentialManager | null = null;
 let isLoggedIn = false;
 let sharedSessionMode = false;
 const mobileShortcutsManager = new MobileShortcutsManager();
@@ -44,6 +43,7 @@ const snippetManager = new SnippetManager({
   isAuthenticated: () => isLoggedIn && !sharedSessionMode,
   onStateChange: () => syncDrawerSegmentedControl(),
 });
+const toolsDrawer = new ToolsDrawer(() => syncDrawerSegmentedControl());
 
 function setUserSpaceMenuOpen(open: boolean): void {
   document.getElementById('user-space-header-actions')?.classList.toggle('is-open', open);
@@ -262,6 +262,8 @@ function showAuthSection(): void {
   document.getElementById('user-space-section')!.classList.remove('flex');
   document.getElementById('server-modal')!.classList.add('hidden');
   document.getElementById('server-modal')!.classList.remove('flex');
+  document.getElementById('credential-modal')?.classList.add('hidden');
+  document.getElementById('credential-modal')?.classList.remove('flex');
 
   // 匿名模式/退出登录：隐藏 AI Agent 按钮（桌面分段条与移动端菜单）
   document.getElementById('agent-toggle-btn')?.classList.add('hidden');
@@ -285,7 +287,6 @@ function showUserSpace(user: {
 }): void {
   deactivateTerminalView();
   isLoggedIn = true;
-  customThemeStore.setLoggedIn(true);
   document.getElementById('auth-section')!.classList.add('hidden');
   document.getElementById('user-space-section')!.classList.remove('hidden');
   document.getElementById('user-space-section')!.classList.add('flex');
@@ -304,8 +305,8 @@ function showUserSpace(user: {
     // onLogout 回调
     () => {
       isLoggedIn = false;
-      customThemeStore.setLoggedIn(false);
       serverList = null;
+      credentialManager = null;
       if (tabManager) {
         tabManager.closeAllTabs();
       }
@@ -316,6 +317,13 @@ function showUserSpace(user: {
       showTerminalFromServer(wsUrl, serverName, hostInfo);
     }
   );
+  if (!credentialManager) {
+    credentialManager = new CredentialManager(() => {
+      void serverList?.refreshSavedCredentials();
+    });
+  } else {
+    void credentialManager.reload();
+  }
 }
 
 /** 显示连接页面（匿名 → auth-form，登录 → 服务器列表） */
@@ -473,12 +481,15 @@ let terminalDrawerControl: LiquidSegmentedDrawerControl | null = null;
 function closeAllDrawers(): void {
   tabManager?.closeAllDrawers();
   snippetManager.close();
+  toolsDrawer.close();
   syncDrawerSegmentedControl();
 }
 
 function syncDrawerSegmentedControl(): void {
   const tab = tabManager?.getActiveTab();
-  if (snippetManager.isOpen()) {
+  if (toolsDrawer.isOpen()) {
+    terminalDrawerControl?.setActive('tools');
+  } else if (snippetManager.isOpen()) {
     terminalDrawerControl?.setActive('snippet');
   } else if (tab?.sftpPanel?.isVisible()) {
     terminalDrawerControl?.setActive('sftp');
@@ -493,13 +504,14 @@ function syncDrawerSegmentedControl(): void {
  * 抽屉互斥开关的唯一入口（桌面分段条与移动端菜单按钮共用）。
  * 返回是否真的发生了状态变化（SFTP 未就绪 / Agent 不可用时为 false）。
  */
-function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'agent', open: boolean): boolean {
+function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'tools' | 'agent', open: boolean): boolean {
   const tab = tabManager?.getActiveTab();
   if (drawer === 'sftp') {
     if (open) {
       // SFTP 面板由 TabManager 的 sessionReady 回调初始化，未就绪时不可打开
       if (!tab?.sftpPanel) return false;
       snippetManager.close();
+      toolsDrawer.close();
       tab.agentPanel?.hide();
       tab.sftpPanel.show();
     } else {
@@ -509,15 +521,26 @@ function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'agent', open: boolean):
     if (open) {
       tab?.sftpPanel?.hide();
       tab?.agentPanel?.hide();
+      toolsDrawer.close();
       void snippetManager.open();
     } else {
       snippetManager.close();
+    }
+  } else if (drawer === 'tools') {
+    if (open) {
+      tab?.sftpPanel?.hide();
+      tab?.agentPanel?.hide();
+      snippetManager.close();
+      toolsDrawer.open();
+    } else {
+      toolsDrawer.close();
     }
   } else {
     if (open) {
       if (!tab?.agentPanel) return false;
       tab.sftpPanel?.hide();
       snippetManager.close();
+      toolsDrawer.close();
       tab.agentPanel.show();
     } else {
       tab?.agentPanel?.hide();
@@ -532,7 +555,7 @@ function initTerminalDrawerControl(): void {
   if (!drawerBar) return;
 
   terminalDrawerControl = new LiquidSegmentedDrawerControl(drawerBar, (drawer, open) => {
-    if (!applyDrawerToggle(drawer as 'sftp' | 'snippet' | 'agent', open)) {
+    if (!applyDrawerToggle(drawer as 'sftp' | 'snippet' | 'tools' | 'agent', open)) {
       // 抽屉不可用：回退透镜的激活态
       terminalDrawerControl?.setActive(null);
     }
@@ -566,12 +589,25 @@ function toggleSnippetManager(): void {
   if (!snippetManager.isOpen()) {
     tab?.sftpPanel?.hide();
     tab?.agentPanel?.hide();
+    toolsDrawer.close();
   }
   snippetManager.toggle();
   syncDrawerSegmentedControl();
 }
 
+function toggleToolsDrawer(): void {
+  const tab = tabManager?.getActiveTab();
+  if (!toolsDrawer.isOpen()) {
+    tab?.sftpPanel?.hide();
+    tab?.agentPanel?.hide();
+    snippetManager.close();
+  }
+  toolsDrawer.toggle();
+  syncDrawerSegmentedControl();
+}
+
 document.getElementById('mobile-snippets-btn')?.addEventListener('click', toggleSnippetManager);
+document.getElementById('mobile-tools-btn')?.addEventListener('click', toggleToolsDrawer);
 
 // ==================== AI Agent 面板设置 ====================
 
@@ -608,45 +644,14 @@ document.getElementById('export-btn')?.addEventListener('click', () => {
 
 // ==================== 主题切换 ====================
 
-const CUSTOM_THEME_VALUE = '__custom__';
-let themeSelectionRevision = 0;
 let userThemeSegmentedControl: LiquidSegmentedThemeControl | null = null;
 const themeSelectors = Array.from(
   document.querySelectorAll<HTMLSelectElement>('[data-theme-selector]')
 );
 
 function handleThemeSelection(value: string): void {
-  if (value === CUSTOM_THEME_VALUE) {
-    if (!customThemeStore.hasThemes()) {
-      // 未上传过自定义主题 -> 弹窗要求上传
-      const fallback = localStorage.getItem('cloudssh_theme_selection') || 'cyberpunk';
-      syncThemeSelectors(fallback);
-      customThemeModal.show({
-        onApplied: () => {
-          themeSelectionRevision++;
-          syncThemeSelectors(CUSTOM_THEME_VALUE);
-          localStorage.setItem('cloudssh_theme_selection', CUSTOM_THEME_VALUE);
-        },
-        onClosed: () => {
-          if (!customThemeStore.hasThemes()) {
-            const cur = localStorage.getItem('cloudssh_theme_selection') || 'cyberpunk';
-            syncThemeSelectors(cur);
-          }
-        },
-      });
-      return;
-    }
-
-    const active = customThemeStore.getActiveTheme();
-    if (active) {
-      applyImportedTheme(active.data);
-      localStorage.setItem('cloudssh_imported_theme', JSON.stringify(active.data));
-    }
-  } else if (isBuiltInTheme(value)) {
-    applyBuiltInTheme(value);
-  }
-
-  themeSelectionRevision++;
+  if (!isBuiltInTheme(value)) return;
+  applyBuiltInTheme(value);
   syncThemeSelectors(value);
   localStorage.setItem('cloudssh_theme_selection', value);
 }
@@ -658,73 +663,12 @@ for (const selector of themeSelectors) {
   });
 }
 
-function ensureCustomOption(): void {
-  for (const selector of themeSelectors) {
-    let option = selector.querySelector<HTMLOptionElement>(`option[value="${CUSTOM_THEME_VALUE}"]`);
-    if (!option) {
-      option = document.createElement('option');
-      option.value = CUSTOM_THEME_VALUE;
-      selector.insertBefore(option, selector.firstChild);
-    }
-    option.textContent = t('theme.custom');
-  }
-  userThemeSegmentedControl?.ensureCustomButton();
-}
-
 function syncThemeSelectors(value: string): void {
   for (const selector of themeSelectors) {
     selector.value = value;
   }
   userThemeSegmentedControl?.syncFromSelect(value, true);
 }
-
-// 兼容全局/测试文件导入 input
-const globalImportThemeInput = document.getElementById('import-theme-input') as HTMLInputElement | null;
-globalImportThemeInput?.addEventListener('change', async (e) => {
-  const file = (e.target as HTMLInputElement).files?.[0];
-  if (!file) return;
-  if (file.size > THEME_MAX_BYTES) {
-    notify(t('theme.importFailed'), { title: t('theme.importTitle'), variant: 'danger' });
-    globalImportThemeInput.value = '';
-    return;
-  }
-
-  try {
-    const text = await file.text();
-    let rawJson: unknown;
-    try {
-      rawJson = JSON.parse(text);
-    } catch {
-      notify(t('theme.invalidJson'), { title: t('theme.importTitle'), variant: 'danger' });
-      return;
-    }
-
-    const data = normalizeImportedTheme(rawJson);
-    if (!data) {
-      notify(t('theme.importFailed'), { title: t('theme.importTitle'), variant: 'danger' });
-      return;
-    }
-
-    const baseFileName = file.name.replace(/\.[^/.]+$/, '').trim();
-    const themeName = data.name || baseFileName || t('theme.custom');
-    const newItem = await customThemeStore.addTheme(themeName, data);
-    await customThemeStore.selectTheme(newItem.id);
-    handleThemeSelection(CUSTOM_THEME_VALUE);
-    notify(t('theme.importSuccess'), { variant: 'success' });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : t('theme.importFailed');
-    notify(msg, { title: t('theme.importTitle'), variant: 'danger' });
-  }
-  globalImportThemeInput.value = '';
-});
-
-// 监听自定义主题仓库变动：若全部主题被删除且当前处于自定义主题，自动回退到内置主题
-customThemeStore.subscribe(() => {
-  const current = localStorage.getItem('cloudssh_theme_selection');
-  if (current === CUSTOM_THEME_VALUE && !customThemeStore.hasThemes()) {
-    handleThemeSelection('cyberpunk');
-  }
-});
 
 // ==================== 主题恢复 ====================
 
@@ -756,134 +700,11 @@ function restoreTheme(): void {
     return;
   }
 
-  if (selection === CUSTOM_THEME_VALUE && customThemeStore.hasThemes()) {
-    const active = customThemeStore.getActiveTheme();
-    if (active) {
-      applyImportedTheme(active.data);
-      localStorage.setItem('cloudssh_imported_theme', JSON.stringify(active.data));
-      ensureCustomOption();
-      syncThemeSelectors(CUSTOM_THEME_VALUE);
-      return;
-    }
-  }
-
-  const raw = localStorage.getItem('cloudssh_imported_theme');
-  if (raw) {
-    try {
-      const theme = normalizeImportedTheme(JSON.parse(raw));
-      if (!theme) throw new Error('Invalid theme');
-      localStorage.setItem('cloudssh_imported_theme', JSON.stringify(theme));
-      ensureCustomOption();
-      if (selection === CUSTOM_THEME_VALUE) {
-        applyImportedTheme(theme);
-        syncThemeSelectors(CUSTOM_THEME_VALUE);
-        return;
-      }
-    } catch {
-      localStorage.removeItem('cloudssh_imported_theme');
-    }
-  }
-
+  localStorage.removeItem('cloudssh_imported_theme');
+  localStorage.removeItem('cloudssh_custom_themes');
   localStorage.setItem('cloudssh_theme_selection', 'cyberpunk');
   applyBuiltInTheme('cyberpunk');
   syncThemeSelectors('cyberpunk');
-}
-
-async function saveThemeToCloud(
-  theme: ReturnType<typeof normalizeImportedTheme>
-): Promise<boolean> {
-  if (!theme) return false;
-  try {
-    const response = await fetch('/api/user/theme', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme_data: theme }),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-/** 登录态下回归内置主题时删除云端自定义主题槽（幂等：无行也成功） */
-export async function clearCloudTheme(): Promise<boolean> {
-  try {
-    const response = await fetch('/api/user/theme', { method: 'DELETE' });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-/** 清除本地自定义主题缓存并从选择器移除自定义项（不影响当前生效的内置主题） */
-export function removeCustomThemeLocally(): void {
-  localStorage.removeItem('cloudssh_imported_theme');
-  for (const selector of themeSelectors) {
-    selector.querySelector(`option[value="${CUSTOM_THEME_VALUE}"]`)?.remove();
-  }
-  userThemeSegmentedControl?.removeCustomButton();
-}
-
-/**
- * 登录后恢复账号主题。新浏览器没有本地选择时自动启用云端主题；
- * 已明确选择内置主题的当前浏览器只缓存云端主题，不强制覆盖本地选择。
- */
-async function restoreCloudTheme(
-  initialSelection: string | null,
-  expectedSelectionRevision: number
-): Promise<void> {
-  try {
-    const ok = await customThemeStore.fetchFromCloud();
-    if (ok) {
-      if (themeSelectionRevision !== expectedSelectionRevision) return;
-      const active = customThemeStore.getActiveTheme();
-      if (active) {
-        localStorage.setItem('cloudssh_imported_theme', JSON.stringify(active.data));
-      }
-      ensureCustomOption();
-      if (initialSelection === null || initialSelection === CUSTOM_THEME_VALUE) {
-        localStorage.setItem('cloudssh_theme_selection', CUSTOM_THEME_VALUE);
-        if (active) {
-          applyImportedTheme(active.data);
-        }
-        syncThemeSelectors(CUSTOM_THEME_VALUE);
-      }
-      return;
-    }
-
-    const response = await fetch('/api/user/theme');
-    if (!response.ok) return;
-    const payload = (await response.json()) as { theme?: unknown };
-    const cloudTheme = normalizeImportedTheme(payload.theme);
-
-    if (cloudTheme) {
-      if (themeSelectionRevision !== expectedSelectionRevision) return;
-      localStorage.setItem('cloudssh_imported_theme', JSON.stringify(cloudTheme));
-      ensureCustomOption();
-      if (initialSelection === null || initialSelection === CUSTOM_THEME_VALUE) {
-        localStorage.setItem('cloudssh_theme_selection', CUSTOM_THEME_VALUE);
-        applyImportedTheme(cloudTheme);
-        syncThemeSelectors(CUSTOM_THEME_VALUE);
-      }
-      return;
-    }
-
-    // 匿名状态下已导入且当前正在使用的本地主题，在首次登录后补充同步到账号。
-    // 仅当本地选择停留在自定义主题时回填：排除「残留但未使用」的陈旧导入被上传到
-    // 全新账号的云端主题槽（如密码模式新建管理员搭配既有浏览器状态）。
-    const selection = localStorage.getItem('cloudssh_theme_selection');
-    if (selection !== CUSTOM_THEME_VALUE) return;
-    if (customThemeStore.hasThemes()) {
-      await customThemeStore.syncToCloud();
-      return;
-    }
-    const localRaw = localStorage.getItem('cloudssh_imported_theme');
-    if (!localRaw) return;
-    const localTheme = normalizeImportedTheme(JSON.parse(localRaw));
-    if (localTheme) await saveThemeToCloud(localTheme);
-  } catch {
-    // 云端不可用时继续使用本地主题，不影响 SSH 主流程。
-  }
 }
 
 // ==================== 初始化 ====================
@@ -960,29 +781,6 @@ async function init(): Promise<void> {
   const userSelect = document.getElementById('user-theme-selector') as HTMLSelectElement | null;
   if (userSegmentedContainer && userSelect) {
     userThemeSegmentedControl = new LiquidSegmentedThemeControl(userSegmentedContainer, userSelect);
-    userThemeSegmentedControl.setOnCustomThemeClick((isCurrentlyActive) => {
-      if (!customThemeStore.hasThemes()) {
-        customThemeModal.show({
-          onApplied: () => {
-            themeSelectionRevision++;
-            userThemeSegmentedControl?.selectTheme(CUSTOM_THEME_VALUE);
-          },
-        });
-        return;
-      }
-
-      if (!isCurrentlyActive) {
-        userThemeSegmentedControl?.selectTheme(CUSTOM_THEME_VALUE);
-        return;
-      }
-
-      customThemeModal.show({
-        onApplied: () => {
-          themeSelectionRevision++;
-          userThemeSegmentedControl?.selectTheme(CUSTOM_THEME_VALUE);
-        },
-      });
-    });
   }
 
   const drawerBar = document.getElementById('terminal-drawer-segmented-bar');
@@ -993,6 +791,7 @@ async function init(): Promise<void> {
 
   document.addEventListener('cloudssh:active-terminal-change', () => {
     snippetManager.close();
+    toolsDrawer.close();
     syncDrawerSegmentedControl();
   });
 
@@ -1010,10 +809,8 @@ async function init(): Promise<void> {
   });
   mobileTerminalController.start();
   onLocaleChange(() => {
-    if (localStorage.getItem('cloudssh_imported_theme')) ensureCustomOption();
     tabManager?.refreshTranslations();
   });
-  const initialThemeSelection = localStorage.getItem('cloudssh_theme_selection');
   restoreTheme();
   // 设置版权年份
   const copyrightYearSpan = document.getElementById('copyright-year');
@@ -1046,7 +843,6 @@ async function init(): Promise<void> {
     if (meRes.ok) {
       const user = await meRes.json();
       showUserSpace(user);
-      void restoreCloudTheme(initialThemeSelection, themeSelectionRevision);
       return;
     }
   } catch {

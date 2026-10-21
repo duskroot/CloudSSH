@@ -161,13 +161,13 @@ test('paginates after filtering and resets to the first page', async ({ page }) 
   await expect(page.locator('.server-card')).toHaveCount(6);
   await expect(page.locator('#server-page-info')).toContainText('2');
 
-  await page.locator('#server-tag-filter').selectOption('production');
+  await page.locator('#server-group-list [data-group="production"]').click();
   await expect(page.locator('.server-card')).toHaveCount(6);
   await expect(page.locator('#server-pagination')).toBeVisible();
 
   await page.locator('#server-search').fill('Server 01');
   await expect(page.locator('.server-card')).toHaveCount(1);
-  await expect(page.locator('.server-card')).toContainText('#production');
+  await expect(page.locator('.server-card')).toContainText('production');
 });
 
 test('有无标签的同排服务器卡片将操作按钮对齐到底部', async ({ page }) => {
