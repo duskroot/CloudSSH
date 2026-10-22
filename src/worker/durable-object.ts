@@ -10,6 +10,8 @@ import {
   RESUME_CHALLENGE_MAX_CLOCK_SKEW_MS,
 } from '../share-resume-schema';
 import { checkHostResolved } from './dns-check';
+import { executeDirect } from '../db/execute';
+import type { DbAdminRequest, DbArchiveTarget } from '../db-admin';
 import { SSHSession } from './ssh-session';
 import { isValidTunnelHostname, TunnelWebSocketStream } from './tunnel-stream';
 
@@ -135,6 +137,17 @@ export class SSHSessionDO {
         this.destroyDetachedRecord(sessionId, record);
       }
       return Response.json({ success: true, revoked });
+    }
+
+    if (url.pathname === '/internal/db-connect' && request.method === 'POST') {
+      try {
+        const body = await request.json<{ target: DbArchiveTarget; request: DbAdminRequest }>();
+        const rows = await executeDirect(body.target, body.request);
+        return Response.json({ ok: true, rows });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '命令失败';
+        return Response.json({ ok: false, error: message });
+      }
     }
 
     const upgradeHeader = request.headers.get('Upgrade');

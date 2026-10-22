@@ -38,6 +38,7 @@ export interface ServerConfig {
   has_cf_access_client_secret?: boolean;
   credential_id?: number | null;
   credential_name?: string | null;
+  remark?: string;
   /** 最近连接成功的 Unix 毫秒时间戳 */
   last_connected_at?: number | null;
   created_at: string;
@@ -59,6 +60,7 @@ interface ServerSavePayload {
   cf_access_client_id?: string;
   cf_access_client_secret?: string;
   credential_id?: number | null;
+  remark?: string;
 }
 
 interface ServerSaveResponse {
@@ -683,6 +685,12 @@ export class ServerList {
           <span class="text-on-surface min-w-0 truncate" title="${this.escapeAttr(server.credential_name)}">${this.escapeHtml(server.credential_name)}</span>
         </div>`
       : '';
+    const remarkMarkup = server.remark
+      ? `<div class="server-card-meta-row flex items-center gap-2 min-w-0">
+          <span class="text-dim">${t('common.remark')}</span>
+          <span class="text-on-surface min-w-0 truncate" title="${this.escapeAttr(server.remark)}">${this.escapeHtml(server.remark)}</span>
+        </div>`
+      : '';
 
     const lastConnectedText = server.last_connected_at
       ? formatTimestampWithRelative(server.last_connected_at, Date.now(), getLocale())
@@ -727,6 +735,7 @@ export class ServerList {
           </div>
             ${jumpMarkup}
             ${credentialMarkup}
+            ${remarkMarkup}
           <div class="server-card-region-row flex items-center gap-2 min-w-0">
             <span class="text-dim">${t('server.regionLabel')}</span>
             <span class="text-on-surface flex items-center gap-1">
@@ -905,6 +914,7 @@ export class ServerList {
       (document.getElementById('server-tags') as HTMLInputElement).value = (server.tags || []).join(
         ', '
       );
+      (document.getElementById('server-remark') as HTMLInputElement).value = server.remark || '';
 
       this.setModalAuthMode(
         server.credential_id
@@ -971,6 +981,7 @@ export class ServerList {
       (document.getElementById('server-password') as HTMLInputElement).value = '';
       (document.getElementById('server-private-key') as HTMLTextAreaElement).value = '';
       (document.getElementById('server-tags') as HTMLInputElement).value = '';
+      (document.getElementById('server-remark') as HTMLInputElement).value = '';
       this.setModalAuthMode('password');
       this.setModalTransportMode('direct');
 
@@ -1389,6 +1400,7 @@ export class ServerList {
         transport_type: this.modalTransportMode,
         jump_server_id: isTunnel ? null : jumpServerId,
         credential_id: selectedCredential ? selectedCredential.id : null,
+        remark: (document.getElementById('server-remark') as HTMLInputElement).value,
       };
       if (
         !selectedCredential &&

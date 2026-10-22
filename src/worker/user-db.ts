@@ -4,6 +4,7 @@ import { ServerMemoryStore } from './server-memory-store';
 import { normalizeSnippetInput, SNIPPET_MAX_COUNT } from '../snippet-schema';
 import { normalizeMobileShortcutsPayload } from '../mobile-shortcuts-schema';
 import { normalizeUserThemePayload } from '../theme-schema';
+import { DB_ENGINES, defaultDbPort, type DbEngine } from '../db-admin';
 import {
   ALLOWED_LOCATION_HINTS,
   type Env,
@@ -18,6 +19,20 @@ import { isValidTunnelHostname } from './tunnel-stream';
 
 const AUTH_METHODS = new Set(['password', 'publickey', 'none']);
 const MAX_JUMP_HOSTS = 3;
+
+function cleanRemark(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 200);
+}
+
+function cleanDbRegion(value: unknown): string {
+  return typeof value === 'string' && (ALLOWED_LOCATION_HINTS as readonly string[]).includes(value) ? value : '';
+}
+
+function validDbUsername(engine: DbEngine, username: string): boolean {
+  if (!username) return engine === 'redis';
+  return /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(username);
+}
 
 // 单管理员密码登录节流（DO 持久化，跨 isolate 权威；指数退避封顶 15 分钟）
 const LOGIN_LOCKOUT_THRESHOLD = 5;
@@ -68,6 +83,7 @@ type ServerRow = {
   updated_at: string;
   credential_id: number | null;
   credential_name: string | null;
+  remark: string;
 };
 type UserIdRow = { user_id: number };
 type LoginThrottleRow = { fail_count: number; locked_until: number; last_fail_at: number };
@@ -159,7 +175,7 @@ export class UserDBDO {
               s.transport_type, s.cf_tunnel_host, s.cf_access_client_id,
               (s.cf_access_client_secret IS NOT NULL AND s.cf_access_client_secret != '') AS has_cf_access_client_secret,
               s.last_connected_at, s.created_at, s.updated_at,
-              s.credential_id, c.name AS credential_name
+              s.credential_id, c.name AS credential_name, s.remark
        FROM servers s
        LEFT JOIN saved_credentials c ON c.id = s.credential_id AND c.user_id = s.user_id
        ${whereSql}`,
@@ -326,6 +342,20 @@ export class UserDBDO {
       );
       CREATE INDEX IF NOT EXISTS idx_saved_credentials_user
         ON saved_credentials(user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS db_archives (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        name        TEXT NOT NULL,
+        engine      TEXT NOT NULL,
+        host        TEXT NOT NULL,
+        port        INTEGER NOT NULL,
+        username    TEXT NOT NULL,
+        password    TEXT NOT NULL,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_db_archives_user ON db_archives(user_id, created_at DESC);
     `);
 
     const aiColumns = this.db.exec('PRAGMA table_info(ai_configs)').toArray();
@@ -371,6 +401,21 @@ export class UserDBDO {
     }
     if (!serverCols.some((c: any) => c.name === 'credential_id')) {
       this.db.exec('ALTER TABLE servers ADD COLUMN credential_id INTEGER DEFAULT NULL');
+    }
+    if (!serverCols.some((c: any) => c.name === 'remark')) {
+      this.db.exec("ALTER TABLE servers ADD COLUMN remark TEXT NOT NULL DEFAULT ''");
+    }
+    for (const table of ['saved_credentials', 'db_archives']) {
+      const columns = this.db.exec(`PRAGMA table_info(${table})`).toArray();
+      if (columns.length > 0 && !columns.some((column: any) => column.name === 'remark')) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN remark TEXT NOT NULL DEFAULT ''`);
+      }
+      if (table === 'db_archives' && columns.length > 0 && !columns.some((column: any) => column.name === 'region')) {
+        this.db.exec("ALTER TABLE db_archives ADD COLUMN region TEXT NOT NULL DEFAULT ''");
+      }
+      if (table === 'db_archives' && columns.length > 0 && !columns.some((column: any) => column.name === 'inferred_hint')) {
+        this.db.exec('ALTER TABLE db_archives ADD COLUMN inferred_hint TEXT DEFAULT NULL');
+      }
     }
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_servers_jump ON servers(jump_server_id)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_servers_last_connected ON servers(user_id, last_connected_at DESC)');
@@ -439,6 +484,25 @@ export class UserDBDO {
         const credentialId = parseInt(credentialMatch[1], 10);
         if (request.method === 'PUT') return this.handleUpdateCredential(credentialId, request);
         if (request.method === 'DELETE') return this.handleDeleteCredential(credentialId, request);
+      }
+
+      if (path === '/internal/db-archives' && request.method === 'GET') {
+        const userId = Number(url.searchParams.get('user_id'));
+        if (!Number.isInteger(userId)) return Response.json({ error: 'Invalid user_id' }, { status: 400 });
+        return this.handleListDbArchives(userId);
+      }
+      if (path === '/internal/db-archives' && request.method === 'POST') {
+        return this.handleCreateDbArchive(request);
+      }
+      if (path === '/internal/db-archives/secret' && request.method === 'POST') {
+        return this.handleDbArchiveSecret(request);
+      }
+      const dbArchiveMatch = path.match(/^\/internal\/db-archives\/(\d+)$/);
+      if (dbArchiveMatch && request.method === 'PUT') {
+        return this.handleUpdateDbArchive(parseInt(dbArchiveMatch[1], 10), request);
+      }
+      if (dbArchiveMatch && request.method === 'DELETE') {
+        return this.handleDeleteDbArchive(parseInt(dbArchiveMatch[1], 10), request);
       }
 
       // --- 服务器 CRUD ---
@@ -944,6 +1008,7 @@ export class UserDBDO {
       cf_access_client_id?: string;
       cf_access_client_secret?: string;
       credential_id?: number | null;
+      remark?: string;
     }>();
 
     const port = body.port ?? 22;
@@ -1055,8 +1120,8 @@ export class UserDBDO {
         user_id, name, host, port, username, credential, auth_method,
         region, inferred_hint, tags, jump_server_id,
         transport_type, cf_tunnel_host, cf_access_client_id, cf_access_client_secret,
-        credential_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        credential_id, remark
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       body.user_id,
       body.name,
       body.host,
@@ -1072,7 +1137,8 @@ export class UserDBDO {
       cleanTunnelHost,
       cfAccessClientId,
       encCfAccessClientSecret,
-      linkedCredential ? linkedCredential.id : null
+      linkedCredential ? linkedCredential.id : null,
+      cleanRemark(body.remark)
     );
 
     // 获取新创建的记录
@@ -1103,6 +1169,7 @@ export class UserDBDO {
       cf_access_client_id?: string;
       cf_access_client_secret?: string | null;
       credential_id?: number | null;
+      remark?: string;
     }>();
 
     // 验证服务器属于该用户（行形状：user_id/host/port/auth_method/region/inferred_hint/jump_server_id/transport_type/cf_tunnel_host/cf_access_client_id/cf_access_client_secret）
@@ -1267,6 +1334,10 @@ export class UserDBDO {
     if (body.tags !== undefined) {
       updates.push('tags = ?');
       values.push(serializeServerTags(body.tags));
+    }
+    if (body.remark !== undefined) {
+      updates.push('remark = ?');
+      values.push(cleanRemark(body.remark));
     }
     if (body.jump_server_id !== undefined) {
       updates.push('jump_server_id = ?');
@@ -1810,6 +1881,161 @@ export class UserDBDO {
   private static readonly MAX_CREDENTIAL_USERNAME = 128;
   private static readonly MAX_CREDENTIAL_SECRET = 64 * 1024;
 
+  private handleListDbArchives(userId: number): Response {
+    const rows = this.query<{
+      id: number;
+      name: string;
+      engine: string;
+      host: string;
+      port: number;
+      username: string;
+      created_at: number;
+    }>(
+      `SELECT id, name, engine, host, port, username, remark, region, inferred_hint, created_at
+       FROM db_archives WHERE user_id = ? ORDER BY created_at DESC`,
+      userId
+    );
+    return Response.json(rows);
+  }
+
+  private async handleCreateDbArchive(request: Request): Promise<Response> {
+    const body = await request.json<{
+      user_id: number;
+      name?: string;
+      engine?: string;
+      host?: string;
+      port?: number;
+      username?: string;
+      password?: string;
+      remark?: string;
+      region?: string;
+    }>();
+    const name = (body.name || '').trim();
+    const engine = body.engine as DbEngine;
+    const host = (body.host || '').trim();
+    const username = (body.username || '').trim();
+    const password = body.password || '';
+    const port = body.port || defaultDbPort(engine);
+    if (!name || name.length > 64) return Response.json({ error: '请填写存档名称' }, { status: 400 });
+    if (!DB_ENGINES.includes(engine)) return Response.json({ error: '不支持的数据库类型' }, { status: 400 });
+    if (!/^[A-Za-z0-9._:-]{1,253}$/.test(host)) return Response.json({ error: '主机地址不合法' }, { status: 400 });
+    if (!validDbUsername(engine, username)) {
+      return Response.json({ error: '管理员用户名只能包含字母、数字和下划线' }, { status: 400 });
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return Response.json({ error: '端口不合法' }, { status: 400 });
+    }
+    const region = cleanDbRegion(body.region);
+    const inferred = region ? null : (await inferLocationHint(host)).hint || null;
+    const count = this.one<{ n: number }>('SELECT COUNT(*) AS n FROM db_archives WHERE user_id = ?', body.user_id);
+    if ((count?.n ?? 0) >= 50) return Response.json({ error: '直连存档已达上限' }, { status: 400 });
+    const now = Date.now();
+    const encrypted = await this.encryptCredential(password, body.user_id);
+    this.db.exec(
+      `INSERT INTO db_archives (user_id, name, engine, host, port, username, password, remark, region, inferred_hint, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      body.user_id,
+      name,
+      engine,
+      host,
+      port,
+      username,
+      encrypted,
+      cleanRemark(body.remark),
+      region,
+      inferred,
+      now,
+      now
+    );
+    const created = this.one<{ id: number }>('SELECT id FROM db_archives WHERE user_id = ? ORDER BY id DESC LIMIT 1', body.user_id);
+    return Response.json({ id: created?.id, name, engine, host, port, username, remark: cleanRemark(body.remark), region, inferred_hint: inferred, created_at: now }, { status: 201 });
+  }
+
+  private async handleUpdateDbArchive(id: number, request: Request): Promise<Response> {
+    const body = await request.json<{
+      user_id: number;
+      name?: string;
+      engine?: string;
+      host?: string;
+      port?: number;
+      username?: string;
+      password?: string;
+      remark?: string;
+      region?: string;
+    }>();
+    const existing = this.one<{ user_id: number; host: string; region: string; inferred_hint: string | null }>('SELECT user_id, host, region, inferred_hint FROM db_archives WHERE id = ?', id);
+    if (!existing) return Response.json({ error: '存档不存在' }, { status: 404 });
+    if (existing.user_id !== body.user_id) return Response.json({ error: 'Forbidden' }, { status: 403 });
+    const name = (body.name || '').trim();
+    const engine = body.engine as DbEngine;
+    const host = (body.host || '').trim();
+    const username = (body.username || '').trim();
+    const password = body.password || '';
+    const port = body.port || defaultDbPort(engine);
+    if (!name || name.length > 64) return Response.json({ error: '请填写存档名称' }, { status: 400 });
+    if (!DB_ENGINES.includes(engine)) return Response.json({ error: '不支持的数据库类型' }, { status: 400 });
+    if (!/^[A-Za-z0-9._:-]{1,253}$/.test(host)) return Response.json({ error: '主机地址不合法' }, { status: 400 });
+    if (!validDbUsername(engine, username)) {
+      return Response.json({ error: '管理员用户名只能包含字母、数字和下划线' }, { status: 400 });
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return Response.json({ error: '端口不合法' }, { status: 400 });
+    }
+    const remark = cleanRemark(body.remark);
+    const region = cleanDbRegion(body.region);
+    const inferred = region ? null : host === existing.host && existing.inferred_hint
+      ? existing.inferred_hint
+      : (await inferLocationHint(host)).hint || null;
+    const now = Date.now();
+    if (password) {
+      const encrypted = await this.encryptCredential(password, body.user_id);
+      this.db.exec(
+        `UPDATE db_archives SET name = ?, engine = ?, host = ?, port = ?, username = ?, password = ?, remark = ?, region = ?, inferred_hint = ?, updated_at = ? WHERE id = ?`,
+        name, engine, host, port, username, encrypted, remark, region, inferred, now, id
+      );
+    } else {
+      this.db.exec(
+        `UPDATE db_archives SET name = ?, engine = ?, host = ?, port = ?, username = ?, remark = ?, region = ?, inferred_hint = ?, updated_at = ? WHERE id = ?`,
+        name, engine, host, port, username, remark, region, inferred, now, id
+      );
+    }
+    return Response.json({ id, name, engine, host, port, username, remark, updated_at: now });
+  }
+
+  private async handleDeleteDbArchive(id: number, request: Request): Promise<Response> {
+    const body = await request.json<{ user_id: number }>();
+    const row = this.one<{ user_id: number }>('SELECT user_id FROM db_archives WHERE id = ?', id);
+    if (!row) return Response.json({ error: '存档不存在' }, { status: 404 });
+    if (row.user_id !== body.user_id) return Response.json({ error: 'Forbidden' }, { status: 403 });
+    this.db.exec('DELETE FROM db_archives WHERE id = ?', id);
+    return Response.json({ success: true });
+  }
+
+  private async handleDbArchiveSecret(request: Request): Promise<Response> {
+    const body = await request.json<{ user_id: number; id: number }>();
+    const row = this.one<{
+      user_id: number;
+      engine: DbEngine;
+      host: string;
+      port: number;
+      username: string;
+      password: string;
+      region: string | null;
+      inferred_hint: string | null;
+    }>('SELECT user_id, engine, host, port, username, password, region, inferred_hint FROM db_archives WHERE id = ?', body.id);
+    if (!row || row.user_id !== body.user_id) return Response.json({ error: '存档不存在' }, { status: 404 });
+    const password = row.password ? await this.decryptCredential(row.password, body.user_id) : '';
+    return Response.json({
+      engine: row.engine,
+      host: row.host,
+      port: row.port,
+      username: row.username,
+      password,
+      region: row.region || '',
+      inferred_hint: row.inferred_hint || '',
+    });
+  }
+
   private handleListCredentials(userId: number): Response {
     const rows = this.query<{
       id: number;
@@ -1820,7 +2046,7 @@ export class UserDBDO {
       updated_at: number;
       server_count: number;
     }>(
-      `SELECT c.id, c.name, c.username, c.auth_method, c.created_at, c.updated_at,
+      `SELECT c.id, c.name, c.username, c.auth_method, c.remark, c.created_at, c.updated_at,
               (SELECT COUNT(*) FROM servers s WHERE s.credential_id = c.id AND s.user_id = c.user_id) AS server_count
        FROM saved_credentials c
        WHERE c.user_id = ?
@@ -1871,6 +2097,7 @@ export class UserDBDO {
       username: string;
       auth_method: string;
       credential: string;
+      remark?: string;
     }>();
     const parsed = this.validateCredentialInput(body, true);
     if (parsed instanceof Response) return parsed;
@@ -1881,13 +2108,14 @@ export class UserDBDO {
     const now = Date.now();
     const encrypted = await this.encryptCredential(parsed.credential || '', body.user_id);
     this.db.exec(
-      `INSERT INTO saved_credentials (user_id, name, username, auth_method, credential, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO saved_credentials (user_id, name, username, auth_method, credential, remark, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       body.user_id,
       parsed.name,
       parsed.username,
       parsed.auth_method,
       encrypted,
+      cleanRemark(body.remark),
       now,
       now
     );
@@ -1900,6 +2128,7 @@ export class UserDBDO {
       name: parsed.name,
       username: parsed.username,
       auth_method: parsed.auth_method,
+      remark: cleanRemark(body.remark),
       created_at: now,
       updated_at: now,
       server_count: 0,
@@ -1913,6 +2142,7 @@ export class UserDBDO {
       username: string;
       auth_method: string;
       credential?: string;
+      remark?: string;
     }>();
     const current = this.one<{ user_id: number; auth_method: string }>(
       'SELECT user_id, auth_method FROM saved_credentials WHERE id = ?',
@@ -1928,21 +2158,23 @@ export class UserDBDO {
       const encrypted = await this.encryptCredential(parsed.credential, body.user_id);
       this.db.exec(
         `UPDATE saved_credentials
-         SET name = ?, username = ?, auth_method = ?, credential = ?, updated_at = ?
+         SET name = ?, username = ?, auth_method = ?, credential = ?, remark = ?, updated_at = ?
          WHERE id = ?`,
         parsed.name,
         parsed.username,
         parsed.auth_method,
         encrypted,
+        cleanRemark(body.remark),
         now,
         credentialId
       );
     } else {
       this.db.exec(
-        `UPDATE saved_credentials SET name = ?, username = ?, auth_method = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE saved_credentials SET name = ?, username = ?, auth_method = ?, remark = ?, updated_at = ? WHERE id = ?`,
         parsed.name,
         parsed.username,
         parsed.auth_method,
+        cleanRemark(body.remark),
         now,
         credentialId
       );
@@ -1957,6 +2189,7 @@ export class UserDBDO {
       name: parsed.name,
       username: parsed.username,
       auth_method: parsed.auth_method,
+      remark: cleanRemark(body.remark),
       updated_at: now,
       server_count: serverCount?.n ?? 0,
     });

@@ -1168,6 +1168,15 @@ export class SSHTerminal {
             return;
           }
 
+          if (msg.type === 'db_admin_result') {
+            const waiter = typeof msg.id === 'string' ? this.dbAdminWaiters.get(msg.id) : undefined;
+            if (waiter && typeof msg.id === 'string') {
+              this.dbAdminWaiters.delete(msg.id);
+              waiter({ ok: msg.ok === true, rows: Array.isArray(msg.rows) ? msg.rows : [], error: msg.error });
+            }
+            return;
+          }
+
           if (msg.type === 'session_created') {
             this.activeSessionId = typeof msg.sessionId === 'string' ? msg.sessionId : null;
             this.activeResumeToken = typeof msg.resumeToken === 'string' ? msg.resumeToken : null;
@@ -1579,6 +1588,27 @@ export class SSHTerminal {
     paintMetric('mem', this.hostMetricValues.memory);
     paintMetric('disk', this.hostMetricValues.disk);
   }
+
+  requestDbAdmin(payload: Record<string, unknown>): Promise<{ ok: boolean; rows?: string[]; error?: string }> {
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('终端未连接'));
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.dbAdminWaiters.delete(id);
+        reject(new Error('管理命令超时'));
+      }, 10000);
+      this.dbAdminWaiters.set(id, (message) => {
+        clearTimeout(timer);
+        resolve(message);
+      });
+      this.ws.send(JSON.stringify({ type: 'db_admin', id, ...payload }));
+    });
+  }
+
+  private dbAdminWaiters = new Map<string, (message: { ok: boolean; rows?: string[]; error?: string }) => void>();
 
   private startHeartbeat(): void {
     this.stopHeartbeat();

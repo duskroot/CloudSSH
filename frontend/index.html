@@ -280,6 +280,17 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                   </button>
                   <button
                     type="button"
+                    id="workspace-tab-databases"
+                    class="workspace-tab"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="database-workspace"
+                    data-i18n="db.list"
+                  >
+                    数据库列表
+                  </button>
+                  <button
+                    type="button"
                     id="workspace-tab-credentials"
                     class="workspace-tab"
                     role="tab"
@@ -315,6 +326,17 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                     data-i18n="terminal.backToTerminal"
                     >返回终端</span
                   >
+                </button>
+                <button
+                  id="add-database-btn"
+                  class="hidden cyber-button text-primary py-2 px-4 text-xs font-bold tracking-[0.1em] uppercase flex items-center gap-2"
+                >
+                  <span
+                    class="material-symbols-outlined"
+                    style="font-size: 16px"
+                    >add</span
+                  >
+                  <span data-i18n="db.add">新建数据库连接</span>
                 </button>
                 <button
                   id="add-server-btn"
@@ -501,6 +523,21 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
             </div>
             </div>
             </div>
+            <div id="database-workspace" class="hidden">
+              <div id="database-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+              <div id="database-empty" class="hidden flex-col items-center justify-center py-20">
+                <div class="empty-state-badge" aria-hidden="true">
+                  <span class="material-symbols-outlined" style="font-size: 36px">database</span>
+                </div>
+                <p class="text-muted text-sm tracking-[0.1em] mb-2" data-i18n="db.none">尚未保存数据库连接</p>
+                <p class="text-dim text-xs mb-6" data-i18n="db.noneHint">保存一条连接后，点进卡片即可管理库和用户</p>
+                <button id="empty-add-database-btn" type="button" class="cyber-button text-primary py-2 px-6 text-xs font-bold tracking-[0.1em] uppercase flex items-center gap-2">
+                  <span class="material-symbols-outlined" style="font-size: 16px">add</span>
+                  <span data-i18n="db.addFirst">新建第一个数据库连接</span>
+                </button>
+              </div>
+              <div id="database-manage" class="hidden"></div>
+            </div>
             <div id="credential-workspace" class="hidden">
               <div class="flex justify-end mb-4">
                 <div class="relative w-full max-w-xs">
@@ -529,6 +566,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                       <th data-i18n="credential.name">凭据名称</th>
                       <th data-i18n="credential.username">用户名</th>
                       <th data-i18n="credential.type">凭据类型</th>
+                      <th data-i18n="common.remark">备注</th>
                       <th data-i18n="credential.created">创建时间</th>
                       <th data-i18n="credential.actions">操作</th>
                     </tr>
@@ -644,6 +682,22 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
                   required
                 />
               </div>
+            </div>
+            <div>
+              <label
+                for="server-remark"
+                class="block text-xs font-bold tracking-[0.1em] text-muted mb-2"
+                data-i18n="common.remark"
+                >备注</label
+              >
+              <input
+                id="server-remark"
+                class="terminal-input text-[13px] w-full"
+                type="text"
+                maxlength="200"
+                data-i18n-placeholder="common.remarkPlaceholder"
+                placeholder="可选备注"
+              />
             </div>
             <div>
               <label
@@ -999,6 +1053,73 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
       </div>
 
       <div
+        id="db-connection-modal"
+        class="responsive-modal hidden fixed inset-0 z-[100] flex items-center justify-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="db-connection-modal-title"
+      >
+        <div class="modal-overlay absolute inset-0" id="db-connection-modal-backdrop"></div>
+        <div class="responsive-modal-panel cyber-box p-6 shadow-2xl relative z-10 w-full max-w-md mx-4">
+          <div class="flex items-center justify-between mb-6 pb-4 border-b border-dim">
+            <span id="db-connection-modal-title" class="text-sm font-bold tracking-[0.04em]" data-i18n="db.createTitle">新建数据库连接</span>
+            <button id="db-connection-modal-close" type="button" class="panel-close-btn" data-i18n-aria-label="common.close" aria-label="关闭">
+              <span class="material-symbols-outlined" style="font-size: 18px">close</span>
+            </button>
+          </div>
+          <form id="db-connection-form" class="space-y-4">
+            <div>
+              <label for="db-archive-name" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="db.archiveName">连接名称</label>
+              <input id="db-archive-name" class="terminal-input text-[13px] w-full" maxlength="64" autocomplete="off" />
+            </div>
+            <div>
+              <label for="db-archive-engine" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="db.engine">类型</label>
+              <select id="db-archive-engine" class="terminal-input text-[13px] w-full cursor-pointer">
+                <option value="postgres">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+                <option value="redis">Redis</option>
+                <option value="mongodb">MongoDB</option>
+              </select>
+            </div>
+            <div>
+              <label for="db-archive-region" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="auth.regionHint">连接区域</label>
+              <select id="db-archive-region" class="terminal-input text-[13px] w-full cursor-pointer">
+                <option value="" data-i18n="region.auto">自动（保存时由系统推断）</option>
+              </select>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="col-span-2">
+                <label for="db-archive-host" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="db.host">主机</label>
+                <input id="db-archive-host" class="terminal-input text-[13px] w-full" data-i18n-placeholder="db.hostHint" placeholder="公网地址，例如 203.0.113.10" autocomplete="off" />
+              </div>
+              <div>
+                <label for="db-archive-port" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="db.port">端口</label>
+                <input id="db-archive-port" class="terminal-input text-[13px] w-full" type="number" min="1" max="65535" value="5432" />
+              </div>
+            </div>
+            <div>
+              <label for="db-archive-username" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="db.adminUser">管理员用户名</label>
+              <input id="db-archive-username" class="terminal-input text-[13px] w-full" autocomplete="off" />
+              <p class="text-xs text-muted mt-2" data-i18n="db.redisUserHint">Redis 只需密码，用户名可以留空</p>
+            </div>
+            <div>
+              <label for="db-archive-password" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="db.adminPassword">管理员密码</label>
+              <input id="db-archive-password" class="terminal-input text-[13px] w-full" type="password" autocomplete="new-password" />
+              <p id="db-archive-keep-hint" class="hidden text-xs text-muted mt-2" data-i18n="db.keepPassword">留空则保留已保存的密码</p>
+            </div>
+            <div>
+              <label for="db-archive-remark" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="common.remark">备注</label>
+              <input id="db-archive-remark" class="terminal-input text-[13px] w-full" type="text" maxlength="200" data-i18n-placeholder="common.remarkPlaceholder" placeholder="可选备注" />
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+              <button type="button" id="db-connection-cancel" class="cyber-button px-4 py-2 text-xs" data-i18n="common.cancel">取消</button>
+              <button type="submit" class="cyber-button text-primary px-4 py-2 text-xs font-bold" data-i18n="db.save">保存</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div
         id="credential-modal"
         class="responsive-modal hidden fixed inset-0 z-[100] flex items-center justify-center"
         role="dialog"
@@ -1047,6 +1168,10 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
               </div>
             </div>
             <p id="credential-keep-hint" class="hidden text-xs text-muted" data-i18n="credential.keepSecret">留空则保留已保存的密码或私钥</p>
+            <div>
+              <label for="credential-remark" class="block text-xs font-bold tracking-[0.1em] text-muted mb-2" data-i18n="common.remark">备注</label>
+              <input id="credential-remark" class="terminal-input text-[13px] w-full" type="text" maxlength="200" data-i18n-placeholder="common.remarkPlaceholder" placeholder="可选备注" />
+            </div>
             <div class="flex justify-end gap-3 pt-2">
               <button type="button" id="credential-cancel-btn" class="cyber-button px-4 py-2 text-xs" data-i18n="common.cancel">取消</button>
               <button type="submit" id="credential-submit-btn" class="cyber-button text-primary px-4 py-2 text-xs font-bold" data-i18n="common.confirm">确定</button>

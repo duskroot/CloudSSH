@@ -14,6 +14,7 @@ import {
 } from './share-session';
 import { SnippetManager } from './snippet-manager';
 import { ToolsDrawer } from './tools-drawer';
+import { DbDrawer } from './db-drawer';
 import { TabManager } from './tab-manager';
 import type { SSHHostInfo, SSHTerminal } from './terminal';
 import {
@@ -44,6 +45,7 @@ const snippetManager = new SnippetManager({
   onStateChange: () => syncDrawerSegmentedControl(),
 });
 const toolsDrawer = new ToolsDrawer(() => syncDrawerSegmentedControl());
+const dbDrawer = new DbDrawer();
 
 function setUserSpaceMenuOpen(open: boolean): void {
   document.getElementById('user-space-header-actions')?.classList.toggle('is-open', open);
@@ -320,7 +322,7 @@ function showUserSpace(user: {
   if (!credentialManager) {
     credentialManager = new CredentialManager(() => {
       void serverList?.refreshSavedCredentials();
-    });
+    }, () => dbDrawer.refresh());
   } else {
     void credentialManager.reload();
   }
@@ -482,12 +484,15 @@ function closeAllDrawers(): void {
   tabManager?.closeAllDrawers();
   snippetManager.close();
   toolsDrawer.close();
+  dbDrawer.close();
   syncDrawerSegmentedControl();
 }
 
 function syncDrawerSegmentedControl(): void {
   const tab = tabManager?.getActiveTab();
-  if (toolsDrawer.isOpen()) {
+  if (dbDrawer.isOpen()) {
+    terminalDrawerControl?.setActive('db');
+  } else if (toolsDrawer.isOpen()) {
     terminalDrawerControl?.setActive('tools');
   } else if (snippetManager.isOpen()) {
     terminalDrawerControl?.setActive('snippet');
@@ -504,7 +509,7 @@ function syncDrawerSegmentedControl(): void {
  * 抽屉互斥开关的唯一入口（桌面分段条与移动端菜单按钮共用）。
  * 返回是否真的发生了状态变化（SFTP 未就绪 / Agent 不可用时为 false）。
  */
-function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'tools' | 'agent', open: boolean): boolean {
+function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'tools' | 'db' | 'agent', open: boolean): boolean {
   const tab = tabManager?.getActiveTab();
   if (drawer === 'sftp') {
     if (open) {
@@ -512,6 +517,7 @@ function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'tools' | 'agent', open:
       if (!tab?.sftpPanel) return false;
       snippetManager.close();
       toolsDrawer.close();
+      dbDrawer.close();
       tab.agentPanel?.hide();
       tab.sftpPanel.show();
     } else {
@@ -522,6 +528,7 @@ function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'tools' | 'agent', open:
       tab?.sftpPanel?.hide();
       tab?.agentPanel?.hide();
       toolsDrawer.close();
+      dbDrawer.close();
       void snippetManager.open();
     } else {
       snippetManager.close();
@@ -531,9 +538,20 @@ function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'tools' | 'agent', open:
       tab?.sftpPanel?.hide();
       tab?.agentPanel?.hide();
       snippetManager.close();
+      dbDrawer.close();
       toolsDrawer.open();
     } else {
       toolsDrawer.close();
+    }
+  } else if (drawer === 'db') {
+    if (open) {
+      tab?.sftpPanel?.hide();
+      tab?.agentPanel?.hide();
+      snippetManager.close();
+      toolsDrawer.close();
+      dbDrawer.open();
+    } else {
+      dbDrawer.close();
     }
   } else {
     if (open) {
@@ -541,6 +559,7 @@ function applyDrawerToggle(drawer: 'sftp' | 'snippet' | 'tools' | 'agent', open:
       tab.sftpPanel?.hide();
       snippetManager.close();
       toolsDrawer.close();
+      dbDrawer.close();
       tab.agentPanel.show();
     } else {
       tab?.agentPanel?.hide();
@@ -555,7 +574,7 @@ function initTerminalDrawerControl(): void {
   if (!drawerBar) return;
 
   terminalDrawerControl = new LiquidSegmentedDrawerControl(drawerBar, (drawer, open) => {
-    if (!applyDrawerToggle(drawer as 'sftp' | 'snippet' | 'tools' | 'agent', open)) {
+    if (!applyDrawerToggle(drawer as 'sftp' | 'snippet' | 'tools' | 'db' | 'agent', open)) {
       // 抽屉不可用：回退透镜的激活态
       terminalDrawerControl?.setActive(null);
     }
@@ -590,6 +609,7 @@ function toggleSnippetManager(): void {
     tab?.sftpPanel?.hide();
     tab?.agentPanel?.hide();
     toolsDrawer.close();
+    dbDrawer.close();
   }
   snippetManager.toggle();
   syncDrawerSegmentedControl();
@@ -601,6 +621,7 @@ function toggleToolsDrawer(): void {
     tab?.sftpPanel?.hide();
     tab?.agentPanel?.hide();
     snippetManager.close();
+    dbDrawer.close();
   }
   toolsDrawer.toggle();
   syncDrawerSegmentedControl();
@@ -792,6 +813,7 @@ async function init(): Promise<void> {
   document.addEventListener('cloudssh:active-terminal-change', () => {
     snippetManager.close();
     toolsDrawer.close();
+    dbDrawer.close();
     syncDrawerSegmentedControl();
   });
 

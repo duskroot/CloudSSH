@@ -8,6 +8,7 @@ export interface SavedCredential {
   name: string;
   username: string;
   auth_method: 'password' | 'publickey';
+  remark?: string;
   created_at: number;
   updated_at: number;
   server_count: number;
@@ -22,7 +23,7 @@ export class CredentialManager {
   private kind: CredentialKind = 'password';
   private onChange: (() => void) | null = null;
 
-  constructor(onChange?: () => void) {
+  constructor(onChange?: () => void, private readonly onDatabases?: () => void) {
     this.onChange = onChange ?? null;
     this.bind();
     onLocaleChange(() => {
@@ -48,6 +49,9 @@ export class CredentialManager {
   private bind(): void {
     document.getElementById('workspace-tab-servers')?.addEventListener('click', () => {
       this.showWorkspace('servers');
+    });
+    document.getElementById('workspace-tab-databases')?.addEventListener('click', () => {
+      this.showWorkspace('databases');
     });
     document.getElementById('workspace-tab-credentials')?.addEventListener('click', () => {
       this.showWorkspace('credentials');
@@ -84,29 +88,36 @@ export class CredentialManager {
     });
   }
 
-  private showWorkspace(which: 'servers' | 'credentials'): void {
+  private showWorkspace(which: 'servers' | 'databases' | 'credentials'): void {
     const servers = document.getElementById('server-workspace');
+    const databases = document.getElementById('database-workspace');
     const credentials = document.getElementById('credential-workspace');
     const serverTab = document.getElementById('workspace-tab-servers');
+    const databaseTab = document.getElementById('workspace-tab-databases');
     const credentialTab = document.getElementById('workspace-tab-credentials');
     const addServer = document.getElementById('add-server-btn');
+    const addDatabase = document.getElementById('add-database-btn');
     const addCredential = document.getElementById('add-credential-btn');
     const subtitle = document.getElementById('workspace-subtitle');
-    const showingCredentials = which === 'credentials';
-    servers?.classList.toggle('hidden', showingCredentials);
-    credentials?.classList.toggle('hidden', !showingCredentials);
-    addServer?.classList.toggle('hidden', showingCredentials);
-    addCredential?.classList.toggle('hidden', !showingCredentials);
-    addCredential?.classList.toggle('flex', showingCredentials);
-    serverTab?.classList.toggle('workspace-tab-active', !showingCredentials);
-    credentialTab?.classList.toggle('workspace-tab-active', showingCredentials);
-    serverTab?.setAttribute('aria-selected', String(!showingCredentials));
-    credentialTab?.setAttribute('aria-selected', String(showingCredentials));
+    servers?.classList.toggle('hidden', which !== 'servers');
+    databases?.classList.toggle('hidden', which !== 'databases');
+    credentials?.classList.toggle('hidden', which !== 'credentials');
+    addServer?.classList.toggle('hidden', which !== 'servers');
+    addDatabase?.classList.toggle('hidden', which !== 'databases');
+    addCredential?.classList.toggle('hidden', which !== 'credentials');
+    addCredential?.classList.toggle('flex', which === 'credentials');
+    serverTab?.classList.toggle('workspace-tab-active', which === 'servers');
+    databaseTab?.classList.toggle('workspace-tab-active', which === 'databases');
+    credentialTab?.classList.toggle('workspace-tab-active', which === 'credentials');
+    serverTab?.setAttribute('aria-selected', String(which === 'servers'));
+    databaseTab?.setAttribute('aria-selected', String(which === 'databases'));
+    credentialTab?.setAttribute('aria-selected', String(which === 'credentials'));
     if (subtitle) {
-      const key = showingCredentials ? 'credential.subtitle' : 'server.manage';
+      const key = which === 'credentials' ? 'credential.subtitle' : which === 'databases' ? 'db.subtitle' : 'server.manage';
       subtitle.dataset.i18n = key;
       subtitle.textContent = t(key);
     }
+    if (which === 'databases') this.onDatabases?.();
   }
 
   private setKind(kind: CredentialKind): void {
@@ -134,6 +145,7 @@ export class CredentialManager {
     (document.getElementById('credential-password') as HTMLInputElement).value = '';
     (document.getElementById('credential-key') as HTMLTextAreaElement).value = '';
     (document.getElementById('credential-passphrase') as HTMLInputElement).value = '';
+    (document.getElementById('credential-remark') as HTMLInputElement).value = existing?.remark || '';
     document.getElementById('credential-keep-hint')?.classList.toggle('hidden', !existing);
     this.applyKind();
     const modal = document.getElementById('credential-modal');
@@ -182,7 +194,12 @@ export class CredentialManager {
         secret = prepared.key;
       }
     }
-    const body: Record<string, string> = { name, username, auth_method: authMethod };
+    const body: Record<string, string> = {
+      name,
+      username,
+      auth_method: authMethod,
+      remark: (document.getElementById('credential-remark') as HTMLInputElement).value,
+    };
     if (secret) body.credential = secret;
     const editingId = this.editingId;
     const res = await fetch(editingId ? `/api/credentials/${editingId}` : '/api/credentials', {
@@ -245,6 +262,7 @@ export class CredentialManager {
         cell(item.name),
         cell(item.username),
         typeCell(item.auth_method),
+        cell(item.remark || ''),
         cell(formatStamp(item.created_at)),
         actionCell(item.id)
       );

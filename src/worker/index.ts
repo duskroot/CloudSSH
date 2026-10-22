@@ -1,4 +1,6 @@
 import { normalizeAIBaseUrl } from '../ai-endpoint';
+import type { DbAdminRequest, DbArchiveTarget } from '../db-admin';
+import { inferLocationHint } from './ip-geo';
 import {
   normalizeMobileShortcutsPayload,
   SHORTCUTS_MAX_BYTES,
@@ -223,6 +225,10 @@ export default {
         return handleCredentialsRoute(request, url, env);
       }
 
+      if (url.pathname === '/api/db-archives' || url.pathname.startsWith('/api/db-archives/')) {
+        return handleDbArchivesRoute(request, url, env);
+      }
+
       // ==================== Theme Routes（登录用户跨环境同步） ====================
 
       if (url.pathname === '/api/user/theme') {
@@ -433,6 +439,92 @@ async function handleCredentialsRoute(request: Request, url: URL, env: Env): Pro
         body: JSON.stringify({ user_id: user.id }),
       })
     );
+  }
+  return Response.json({ error: 'Not found' }, { status: 404 });
+}
+
+async function executeDbFromRegion(env: Env, target: DbArchiveTarget, request: DbAdminRequest): Promise<string[]> {
+  const stored = [target.region, target.inferred_hint].find((value) =>
+    typeof value === 'string' && (ALLOWED_LOCATION_HINTS as readonly string[]).includes(value)
+  );
+  const chosen = stored || (await inferLocationHint(target.host)).hint;
+  const id = env.SSH_SESSION.idFromName(`db-egress:${chosen || 'auto'}`);
+  const stub = chosen
+    ? env.SSH_SESSION.get(id, { locationHint: chosen } as { locationHint: DurableObjectLocationHint })
+    : env.SSH_SESSION.get(id);
+  const response = await stub.fetch(new Request('http://do/internal/db-connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, request }),
+  }));
+  const payload = await response.json<{ ok?: boolean; rows?: string[]; error?: string }>();
+  if (!payload.ok) throw new Error(payload.error || '命令失败');
+  return payload.rows || [];
+}
+
+function friendlyDbError(message: string): string {
+  if (/requires authentication|Authentication failed|认证失败/i.test(message)) {
+    return '管理员账号或密码不正确，数据库拒绝了登录';
+  }
+  if (/ECONNREFUSED|Connection refused|连接被拒绝/i.test(message)) {
+    return '数据库拒绝了连接，请确认地址、端口和防火墙';
+  }
+  if (/timed out|超时/i.test(message)) return '连接数据库超时';
+  if (/proxy request failed|cannot connect/i.test(message)) {
+    return 'Cloudflare 连不上这个数据库地址，请确认地址、端口和防火墙。';
+  }
+  if (/WritableStream|is closing|Cannot read properties of null|数据库连接已关闭/i.test(message)) {
+    return '数据库连接已关闭';
+  }
+  if (/Access denied for user/i.test(message)) {
+    return 'MySQL 拒绝了这个账号的密码。请确认连接里保存的密码与服务器上的密码一致。';
+  }
+  return message;
+}
+
+async function handleDbArchivesRoute(request: Request, url: URL, env: Env): Promise<Response> {
+  const user = await getAuthenticatedUser(request, env);
+  if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
+  const stub = getUserDBStub(env, user.github_id);
+  if (url.pathname === '/api/db-archives' && request.method === 'GET') {
+    return stub.fetch(new Request(`http://internal/internal/db-archives?user_id=${user.id}`));
+  }
+  if (url.pathname === '/api/db-archives' && request.method === 'POST') {
+    const body = await request.json<Record<string, unknown>>();
+    body.user_id = user.id;
+    return stub.fetch(new Request('http://internal/internal/db-archives', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+  }
+  const adminMatch = url.pathname.match(/^\/api\/db-archives\/(\d+)\/admin$/);
+  if (adminMatch && request.method === 'POST') {
+    const body = await request.json<DbAdminRequest>();
+    const secretRes = await stub.fetch(new Request('http://internal/internal/db-archives/secret', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: user.id, id: Number(adminMatch[1]) }),
+    }));
+    if (!secretRes.ok) return Response.json({ ok: false, error: '数据库连接不存在' }, { status: 404 });
+    const target = await secretRes.json() as DbArchiveTarget;
+    try {
+      const rows = await executeDbFromRegion(env, target, body);
+      return Response.json({ ok: true, rows });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '命令失败';
+      return Response.json({ ok: false, error: friendlyDbError(message) });
+    }
+  }
+  const match = url.pathname.match(/^\/api\/db-archives\/(\d+)$/);
+  if (match && (request.method === 'PUT' || request.method === 'DELETE')) {
+    const body = request.method === 'PUT' ? await request.json<Record<string, unknown>>() : {};
+    body.user_id = user.id;
+    return stub.fetch(new Request(`http://internal/internal/db-archives/${match[1]}`, {
+      method: request.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
   }
   return Response.json({ error: 'Not found' }, { status: 404 });
 }

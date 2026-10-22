@@ -3246,7 +3246,7 @@ html[data-ui-style="liquid"] :is(.app-dialog__panel, .remote-editor__panel, .aut
   box-shadow: var(--shadow-modal);
 }
 
-html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel) {
+html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel, #db-panel) {
   background: color-mix(in srgb, var(--bg-surface) 15%, rgba(255, 255, 255, 0.78));
   -webkit-backdrop-filter: blur(32px) saturate(200%) contrast(115%) brightness(106%);
   backdrop-filter: blur(32px) saturate(200%) contrast(115%) brightness(106%);
@@ -3257,7 +3257,7 @@ html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel, #too
 }
 
 /* 三大抽屉面板统一高光微透明 Header */
-html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel) :is(.agent-panel-header, .sftp-panel-header) {
+html[data-ui-style="liquid"] :is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel, #db-panel) :is(.agent-panel-header, .sftp-panel-header) {
   background: color-mix(in srgb, var(--bg-surface) 25%, rgba(255, 255, 255, 0.5));
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -3547,7 +3547,7 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
 /* ========== Agent Panel ========== */
 
 /* 侧边抽屉共用同一几何尺寸。 */
-:is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel) {
+:is(#agent-panel, #sftp-panel, #snippet-panel, #tools-panel, #db-panel) {
   width: min(clamp(420px, 40vw, 600px), 100vw);
   max-width: 100vw;
   min-width: 0;
@@ -3561,7 +3561,8 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
 
 /* 自定义命令抽屉的遮罩同样让出顶栏，否则它会吃掉顶栏切换器的点击。 */
 #snippet-panel-backdrop,
-#tools-panel-backdrop {
+#tools-panel-backdrop,
+#db-panel-backdrop {
   top: var(--drawer-top);
 }
 
@@ -5043,7 +5044,8 @@ html[data-ui-motion="none"] :is(.flicker, .scanlines, .scanline) {
      与同为非 Agent 抽屉的 SFTP 不一致；此处对齐 SFTP 的全视口行为。
      内联宽度已移除，故无需 !important 即可生效。 */
   #snippet-panel,
-  #tools-panel {
+  #tools-panel,
+  #db-panel {
     width: 100vw;
     max-width: 100vw;
     height: var(--visual-viewport-height);

@@ -37,6 +37,7 @@ import { KeyDerivation } from '../ssh/keys';
 import { nextSequenceNumber, SSHPacketBuilder, SSHPacketParser } from '../ssh/packet';
 import { SSHTransport } from '../ssh/transport';
 import type { Env } from '../types';
+import { buildDbAdminScript, type DbAdminOp, type DbAdminRequest, type DbArchiveTarget } from '../db-admin';
 import type { AgentTaskCheckpoint } from '../agent-task-schema';
 import { DetachedSessionBuffer } from './ssh-detached-buffer';
 import { KeyboardInteractiveAuthHandler, type PendingAuthChallenge } from './ssh-interactive-auth';
@@ -2204,6 +2205,10 @@ export class SSHSession {
           void this.sampleHostMetrics();
           return;
         }
+        if (parsed.type === 'db_admin') {
+          void this.handleDbAdmin(parsed);
+          return;
+        }
         if (parsed.type === 'resize') {
           this.recordUserActivity();
           await this.handleResize(parsed.cols, parsed.rows);
@@ -3166,6 +3171,72 @@ export class SSHSession {
 
   private static readonly HOST_METRICS_COMMAND =
     "sh -c 'cat /proc/stat; echo ---MEM---; cat /proc/meminfo; echo ---DISK---; df -P /'";
+
+  private dbAdminInFlight = false;
+
+  private async handleDbAdmin(parsed: {
+    id?: string;
+    archiveId?: number;
+    op?: DbAdminOp;
+    name?: string;
+    database?: string;
+    password?: string;
+    privileges?: string[];
+    confirm?: string;
+    redisDb?: number;
+  }): Promise<void> {
+    const id = typeof parsed.id === 'string' ? parsed.id.slice(0, 64) : '';
+    const reply = (ok: boolean, extra: Record<string, unknown> = {}) => {
+      if (this.closed) return;
+      try {
+        this.ws.send(JSON.stringify({ type: 'db_admin_result', id, ok, ...extra }));
+      } catch {
+        /* socket closed */
+      }
+    };
+    if (this.config.sessionPolicy?.source === 'share' || !this.config.githubId || !this.config.userId) {
+      reply(false, { error: '登录后的直连会话才能管理数据库' });
+      return;
+    }
+    if (!this.interactiveShellReady || this.dbAdminInFlight || !this.env) {
+      reply(false, { error: '上一条管理命令还在执行，或终端尚未就绪' });
+      return;
+    }
+    this.dbAdminInFlight = true;
+    try {
+      const stub = this.env.USER_DB.get(this.env.USER_DB.idFromName(this.config.githubId));
+      const secretRes = await stub.fetch(new Request('http://internal/internal/db-archives/secret', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: Number(this.config.userId), id: parsed.archiveId }),
+      }));
+      if (!secretRes.ok) {
+        reply(false, { error: '直连存档不存在' });
+        return;
+      }
+      const target = await secretRes.json() as DbArchiveTarget;
+      const request: DbAdminRequest = {
+        op: parsed.op as DbAdminOp,
+        name: parsed.name,
+        database: parsed.database,
+        password: parsed.password,
+        privileges: parsed.privileges,
+        confirm: parsed.confirm,
+        redisDb: parsed.redisDb,
+      };
+      const command = buildDbAdminScript(target, request);
+      const result = await this.executeAgentCommand(command, 8000, undefined, false);
+      const rows = result.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+      reply(result.exitCode === 0, {
+        rows,
+        error: result.exitCode === 0 ? '' : (result.stderr || result.stdout || '命令失败').slice(0, 500),
+      });
+    } catch (error) {
+      reply(false, { error: error instanceof Error ? error.message : '命令失败' });
+    } finally {
+      this.dbAdminInFlight = false;
+    }
+  }
 
   private async sampleHostMetrics(): Promise<void> {
     if (
